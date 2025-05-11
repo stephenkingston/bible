@@ -1,77 +1,7 @@
-/// Enum representing the books of the Bible in canonical order (Old and New Testament).
-/// Each variant corresponds to a book, with explicit indices starting from 1 for Genesis.
-pub(crate) enum BookName {
-    Genesis = 1,
-    Exodus,
-    Leviticus,
-    Numbers,
-    Deuteronomy,
-    Joshua,
-    Judges,
-    Ruth,
-    FirstSamuel,
-    SecondSamuel,
-    FirstKings,
-    SecondKings,
-    FirstChronicles,
-    SecondChronicles,
-    Ezra,
-    Nehemiah,
-    Esther,
-    Job,
-    Psalms,
-    Proverbs,
-    Ecclesiastes,
-    SongOfSolomon,
-    Isaiah,
-    Jeremiah,
-    Lamentations,
-    Ezekiel,
-    Daniel,
-    Hosea,
-    Joel,
-    Amos,
-    Obadiah,
-    Jonah,
-    Micah,
-    Nahum,
-    Habakkuk,
-    Zephaniah,
-    Haggai,
-    Zechariah,
-    Malachi,
-    // New Testament
-    Matthew,
-    Mark,
-    Luke,
-    John,
-    Acts,
-    Romans,
-    FirstCorinthians,
-    SecondCorinthians,
-    Galatians,
-    Ephesians,
-    Philippians,
-    Colossians,
-    FirstThessalonians,
-    SecondThessalonians,
-    FirstTimothy,
-    SecondTimothy,
-    Titus,
-    Philemon,
-    Hebrews,
-    James,
-    FirstPeter,
-    SecondPeter,
-    FirstJohn,
-    SecondJohn,
-    ThirdJohn,
-    Jude,
-    Revelation,
-}
+use crate::{BookName, Edition};
 
 impl BookName {
-    pub(crate) fn from_index(value: u8) -> Option<Self> {
+    pub fn from_index(value: u8) -> Option<Self> {
         match value {
             1 => Some(BookName::Genesis),
             2 => Some(BookName::Exodus),
@@ -141,5 +71,16 @@ impl BookName {
             66 => Some(BookName::Revelation),
             _ => None,
         }
+    }
+}
+
+/// Match Bible file names (without extension) to Edition
+/// Panics if called with an unknown file. Not meant to
+/// be called by users of this crate
+pub fn filestem_to_edition(file_name: &str) -> Edition {
+    match file_name {
+        "EnglishASVBible" => Edition::EnglishASV,
+        "EnglishKJBible" => Edition::EnglishKingJames,
+        _ => panic!("Unknown edition: {}", file_name),
     }
 }

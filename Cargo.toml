@@ -5,5 +5,25 @@ edition = "2024"
 license = "GPL-2.0-or-later"
 
 [dependencies]
-quick-xml = "0.37.5"
+bincode = "2.0.1"
+serde_json = "1.0.140"
+walkdir = "2.5.0"
+xmltree = "0.11.0"
 zip = "2.6.1"
+
+[[bin]]
+name = "preprocess"
+path = "src/bin/preprocess.rs"
+required-features = ["dev"]
+
+[[bin]]
+name = "bible"
+path = "src/bin/bible.rs"
+required-features = ["dev"]
+
+[features]
+english-kjv = []
+english-asv = []
+default = ["english-kjv"]
+
+dev = []
