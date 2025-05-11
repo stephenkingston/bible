@@ -1,9 +1,11 @@
+#![doc = include_str!("../README.md")]
+
 pub(crate) mod reader;
 pub mod util;
 
-use bincode::{Decode, Encode};
-
 use crate::reader::read_bible;
+use bincode::{Decode, Encode};
+use std::fmt::{self, Display};
 
 #[derive(Default, Encode, Decode)]
 pub struct Bible {
@@ -16,6 +18,16 @@ pub struct VerseReference {
     pub book_name: BookName,
     pub chapter_number: u32,
     pub verse_number: u32,
+}
+
+impl Display for VerseReference {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} {}:{}",
+            self.book_name, self.chapter_number, self.verse_number
+        )
+    }
 }
 
 impl VerseReference {
@@ -51,8 +63,17 @@ pub struct SearchResults {
     pub references: Vec<VerseReference>,
 }
 
+impl Display for SearchResults {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for reference in &self.references {
+            write!(f, "{:?}", reference)?;
+        }
+        Ok(())
+    }
+}
+
 impl Bible {
-    pub fn get_chapter(&self, reference: ChapterReference) -> Option<&Chapter> {
+    pub fn get_chapter(&self, reference: &ChapterReference) -> Option<&Chapter> {
         self.books
             .iter()
             .find(|book| book.name == reference.book_name)
@@ -63,8 +84,8 @@ impl Bible {
             })
     }
 
-    pub fn get_verse(&self, reference: VerseReference) -> Option<&Verse> {
-        self.get_chapter(reference.get_chapter_reference())
+    pub fn get_verse(&self, reference: &VerseReference) -> Option<&Verse> {
+        self.get_chapter(&reference.get_chapter_reference())
             .and_then(|chapter| {
                 chapter
                     .verses
@@ -125,10 +146,26 @@ pub struct Chapter {
     pub verses: Vec<Verse>,
 }
 
+impl Display for Chapter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Chapter {}", self.number)?;
+        for verse in &self.verses {
+            write!(f, "\n\t{}", verse)?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Encode, Decode, Debug)]
 pub struct Verse {
     pub number: u32,
     pub text: String,
+}
+
+impl Display for Verse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.text)
+    }
 }
 
 /// Enum representing the books of the Bible in canonical order (Old and New Testament).
@@ -202,4 +239,78 @@ pub enum BookName {
     ThirdJohn,
     Jude,
     Revelation,
+}
+
+impl fmt::Display for BookName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let book_str = match self {
+            BookName::Genesis => "Genesis",
+            BookName::Exodus => "Exodus",
+            BookName::Leviticus => "Leviticus",
+            BookName::Numbers => "Numbers",
+            BookName::Deuteronomy => "Deuteronomy",
+            BookName::Joshua => "Joshua",
+            BookName::Judges => "Judges",
+            BookName::Ruth => "Ruth",
+            BookName::FirstSamuel => "I Samuel",
+            BookName::SecondSamuel => "II Samuel",
+            BookName::FirstKings => "I Kings",
+            BookName::SecondKings => "II Kings",
+            BookName::FirstChronicles => "I Chronicles",
+            BookName::SecondChronicles => "II Chronicles",
+            BookName::Ezra => "Ezra",
+            BookName::Nehemiah => "Nehemiah",
+            BookName::Esther => "Esther",
+            BookName::Job => "Job",
+            BookName::Psalms => "Psalms",
+            BookName::Proverbs => "Proverbs",
+            BookName::Ecclesiastes => "Ecclesiastes",
+            BookName::SongOfSolomon => "Song of Solomon",
+            BookName::Isaiah => "Isaiah",
+            BookName::Jeremiah => "Jeremiah",
+            BookName::Lamentations => "Lamentations",
+            BookName::Ezekiel => "Ezekiel",
+            BookName::Daniel => "Daniel",
+            BookName::Hosea => "Hosea",
+            BookName::Joel => "Joel",
+            BookName::Amos => "Amos",
+            BookName::Obadiah => "Obadiah",
+            BookName::Jonah => "Jonah",
+            BookName::Micah => "Micah",
+            BookName::Nahum => "Nahum",
+            BookName::Habakkuk => "Habakkuk",
+            BookName::Zephaniah => "Zephaniah",
+            BookName::Haggai => "Haggai",
+            BookName::Zechariah => "Zechariah",
+            BookName::Malachi => "Malachi",
+            BookName::Matthew => "Matthew",
+            BookName::Mark => "Mark",
+            BookName::Luke => "Luke",
+            BookName::John => "John",
+            BookName::Acts => "Acts",
+            BookName::Romans => "Romans",
+            BookName::FirstCorinthians => "I Corinthians",
+            BookName::SecondCorinthians => "II Corinthians",
+            BookName::Galatians => "Galatians",
+            BookName::Ephesians => "Ephesians",
+            BookName::Philippians => "Philippians",
+            BookName::Colossians => "Colossians",
+            BookName::FirstThessalonians => "I Thessalonians",
+            BookName::SecondThessalonians => "II Thessalonians",
+            BookName::FirstTimothy => "I Timothy",
+            BookName::SecondTimothy => "II Timothy",
+            BookName::Titus => "Titus",
+            BookName::Philemon => "Philemon",
+            BookName::Hebrews => "Hebrews",
+            BookName::James => "James",
+            BookName::FirstPeter => "I Peter",
+            BookName::SecondPeter => "II Peter",
+            BookName::FirstJohn => "I John",
+            BookName::SecondJohn => "II John",
+            BookName::ThirdJohn => "III John",
+            BookName::Jude => "Jude",
+            BookName::Revelation => "Revelation",
+        };
+        write!(f, "{}", book_str)
+    }
 }

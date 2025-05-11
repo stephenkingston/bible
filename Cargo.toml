@@ -3,6 +3,8 @@ name = "bible"
 version = "0.1.0"
 edition = "2024"
 license = "GPL-2.0-or-later"
+description = "Use the Bible in Rust"
+repository = "https://github.com/stephenkingston/bible"
 
 [dependencies]
 bincode = "2.0.1"
@@ -26,4 +28,5 @@ english-kjv = []
 english-asv = []
 default = ["english-kjv"]
 
+# For developers only
 dev = []

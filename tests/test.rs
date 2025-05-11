@@ -7,7 +7,7 @@ mod tests {
         let bible = Bible::new(bible::Edition::EnglishKingJames);
         assert!(
             bible
-                .get_chapter(ChapterReference::new(bible::BookName::Acts, 2))
+                .get_chapter(&ChapterReference::new(bible::BookName::Acts, 2))
                 .is_some()
         );
     }
@@ -17,7 +17,7 @@ mod tests {
         let bible = Bible::new(bible::Edition::EnglishKingJames);
         assert!(
             bible
-                .get_verse(VerseReference::new(bible::BookName::Acts, 2, 1))
+                .get_verse(&VerseReference::new(bible::BookName::Acts, 2, 1))
                 .is_some()
         );
     }
