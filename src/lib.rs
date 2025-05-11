@@ -1,6 +1,8 @@
 pub(crate) mod reader;
 pub(crate) mod util;
 
+use util::BookName;
+
 use crate::reader::read_bible;
 
 pub struct Bible {
@@ -14,11 +16,13 @@ impl Bible {
     }
 }
 
+#[derive(Clone)]
 pub enum EnglishVersion {
     KingJames,
     AmericanStandard,
 }
 
+#[derive(Clone)]
 pub enum Language {
     English(EnglishVersion),
 }
