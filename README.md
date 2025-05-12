@@ -35,7 +35,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     for reference in results.references {
         println!();
         println!("{}", &reference);
-        let verse = bible.get_verse(&reference).ok_or("Verse not found")?;
+        let verse = bible
+            .get_verse(&reference)
+            .ok_or("Verse not found")?;
         println!("{}", verse);
     }
 

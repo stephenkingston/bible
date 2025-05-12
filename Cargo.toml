@@ -1,10 +1,11 @@
 [package]
 name = "bible"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 license = "GPL-2.0-or-later"
 description = "Use the Bible in Rust"
 repository = "https://github.com/stephenkingston/bible"
+exclude = ["/xml", "src/bin/preprocess.rs"]
 
 [dependencies]
 bincode = "2.0.1"
@@ -16,17 +17,13 @@ zip = "2.6.1"
 [[bin]]
 name = "preprocess"
 path = "src/bin/preprocess.rs"
-required-features = ["dev"]
 
 [[bin]]
 name = "bible"
 path = "src/bin/bible.rs"
-required-features = ["dev"]
 
 [features]
 english-kjv = []
 english-asv = []
 default = ["english-kjv"]
 
-# For developers only
-dev = []
