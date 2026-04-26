@@ -4,7 +4,8 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Gauge, List, ListItem, Paragraph, Widget, Wrap};
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use unicode_segmentation::UnicodeSegmentation;
+use unicode_width::UnicodeWidthStr;
 
 use crate::reference::book_display;
 use crate::storage;
@@ -273,8 +274,10 @@ fn draw_chapter(f: &mut Frame, app: &App, area: Rect) {
 ///    `skip = true` on the trailing cell, and the diff renderer literally
 ///    skips those cells — so a stale glyph survives every subsequent
 ///    redraw, no matter how many times we write a space over it.
-/// 2. Then write the prefix and (truncated-to-fit) content into the now-
-///    pristine row.
+/// 2. Then write the prefix, then call `write_graphemes` to lay down each
+///    content grapheme cluster with a display width that gives complex
+///    scripts (Tamil, Devanagari, Arabic …) a 2-cell minimum so the
+///    terminal's glyph rendering doesn't overlap into the next character.
 ///
 /// Untouched cells past the content stay as the explicit space we wrote in
 /// step 1, so trailing artifacts can't survive.
@@ -298,28 +301,63 @@ impl Widget for ChapterRow<'_> {
                 cell.set_skip(false);
             }
         }
+        // Prefix is always ASCII (verse numbers + spaces), so a plain
+        // set_string is fine.
         buf.set_string(area.x, y, self.prefix, self.prefix_style);
         let prefix_w = UnicodeWidthStr::width(self.prefix) as u16;
         if prefix_w < area.width && !self.content.is_empty() {
-            let remaining = (area.width - prefix_w) as usize;
-            let truncated = truncate_to_width(self.content, remaining);
-            buf.set_string(area.x + prefix_w, y, &truncated, self.content_style);
+            write_graphemes(
+                buf,
+                area.x + prefix_w,
+                y,
+                area.right(),
+                self.content,
+                self.content_style,
+            );
         }
     }
 }
 
-fn truncate_to_width(s: &str, max_width: usize) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut w = 0usize;
-    for ch in s.chars() {
-        let cw = UnicodeWidthChar::width(ch).unwrap_or(0);
-        if w + cw > max_width {
+/// Write `text` into the buffer one grapheme cluster at a time, advancing
+/// by `display_width()` columns per grapheme. Trailing cells of multi-cell
+/// graphemes get `set_skip(true)` so the diff renderer doesn't emit a write
+/// for them and the terminal can render the glyph across both cells.
+fn write_graphemes(buf: &mut Buffer, mut x: u16, y: u16, x_end: u16, text: &str, style: Style) {
+    for g in UnicodeSegmentation::graphemes(text, true) {
+        let w = display_width(g) as u16;
+        if w == 0 {
+            continue;
+        }
+        if x + w > x_end {
             break;
         }
-        out.push(ch);
-        w += cw;
+        if let Some(cell) = buf.cell_mut((x, y)) {
+            cell.set_symbol(g).set_style(style);
+        }
+        for i in 1..w {
+            if let Some(cell) = buf.cell_mut((x + i, y)) {
+                cell.set_symbol("").set_skip(true).set_style(style);
+            }
+        }
+        x += w;
     }
-    out
+}
+
+/// Display width for a single grapheme cluster.
+///
+/// Multi-codepoint clusters (combining sequences in Tamil/Devanagari/Arabic
+/// /etc.) are pinned to at least 2 columns even when `unicode-width` reports
+/// 1. Many monospace terminal fonts render those graphemes wider than one
+/// cell — without the extra cell of breathing room, the glyph overlaps the
+/// next character. This trades a possible visible gap (when the font *is*
+/// narrow) for guaranteed non-overlap.
+fn display_width(g: &str) -> usize {
+    let raw = UnicodeWidthStr::width(g);
+    if raw == 0 {
+        return 0;
+    }
+    let multi_codepoint = g.chars().count() > 1;
+    if multi_codepoint && raw < 2 { 2 } else { raw }
 }
 
 struct Row {
@@ -338,8 +376,10 @@ impl Row {
     }
 }
 
-/// Word-wrap `text` to lines whose display width does not exceed `max_width`.
-/// Words longer than `max_width` are broken character-by-character.
+/// Word-wrap `text` to lines whose display width does not exceed `max_width`,
+/// using the same `display_width` function that `write_graphemes` uses at
+/// render time. Words longer than `max_width` are broken grapheme-by-
+/// grapheme.
 fn wrap_to_width(text: &str, max_width: usize) -> Vec<String> {
     if max_width == 0 {
         return vec![text.to_string()];
@@ -349,9 +389,8 @@ fn wrap_to_width(text: &str, max_width: usize) -> Vec<String> {
     let mut cur_w: usize = 0;
 
     for word in text.split_whitespace() {
-        let word_w: usize = word
-            .chars()
-            .map(|c| UnicodeWidthChar::width(c).unwrap_or(0))
+        let word_w: usize = UnicodeSegmentation::graphemes(word, true)
+            .map(display_width)
             .sum();
         let needed = if cur.is_empty() {
             word_w
@@ -363,20 +402,20 @@ fn wrap_to_width(text: &str, max_width: usize) -> Vec<String> {
             cur_w = 0;
         }
         if word_w > max_width {
-            // Word doesn't fit even on its own line — break it grapheme by
+            // Word doesn't fit even on its own line — break grapheme by
             // grapheme. Flush any pending cur first.
             if !cur.is_empty() {
                 lines.push(std::mem::take(&mut cur));
                 cur_w = 0;
             }
-            for ch in word.chars() {
-                let cw = UnicodeWidthChar::width(ch).unwrap_or(0);
-                if cur_w + cw > max_width {
+            for g in UnicodeSegmentation::graphemes(word, true) {
+                let gw = display_width(g);
+                if cur_w + gw > max_width && !cur.is_empty() {
                     lines.push(std::mem::take(&mut cur));
                     cur_w = 0;
                 }
-                cur.push(ch);
-                cur_w += cw;
+                cur.push_str(g);
+                cur_w += gw;
             }
             continue;
         }
