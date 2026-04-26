@@ -345,19 +345,24 @@ fn write_graphemes(buf: &mut Buffer, mut x: u16, y: u16, x_end: u16, text: &str,
 
 /// Display width for a single grapheme cluster.
 ///
-/// Multi-codepoint clusters (combining sequences in Tamil/Devanagari/Arabic
-/// /etc.) are pinned to at least 2 columns even when `unicode-width` reports
-/// 1. Many monospace terminal fonts render those graphemes wider than one
-/// cell — without the extra cell of breathing room, the glyph overlaps the
-/// next character. This trades a possible visible gap (when the font *is*
-/// narrow) for guaranteed non-overlap.
+/// Any non-ASCII grapheme whose `unicode-width` is 1 is bumped to 2 columns.
+/// Many monospace terminal fonts render complex-script glyphs (Tamil base
+/// letters like ஆ, Devanagari, Arabic, …) wider than one cell, so without
+/// the extra cell of breathing room, neighbouring characters land on top of
+/// the glyph's overflow and overlap. Even single-codepoint Tamil letters
+/// hit this — the multi-codepoint check we used initially wasn't enough.
+///
+/// Trade-off: if the font does render the glyph narrow, this leaves a
+/// visible gap; if it renders wide, the spacing is correct. Either way,
+/// no overlap. Slightly over-pads precomposed Latin diacritics (ä, é, …)
+/// but the chapter text in those translations is dominated by ASCII.
 fn display_width(g: &str) -> usize {
     let raw = UnicodeWidthStr::width(g);
     if raw == 0 {
         return 0;
     }
-    let multi_codepoint = g.chars().count() > 1;
-    if multi_codepoint && raw < 2 { 2 } else { raw }
+    let is_ascii = g.bytes().all(|b| b < 0x80);
+    if !is_ascii && raw < 2 { 2 } else { raw }
 }
 
 struct Row {
