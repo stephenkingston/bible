@@ -114,6 +114,11 @@ pub(crate) struct App {
     pub download: Option<DownloadState>,
     pub event_tx: Sender<AppEvent>,
 
+    /// Set when the next render should fully repaint (terminal.clear). Used
+    /// after switching translations so wide-char skip cells from the old
+    /// translation can't leak through ratatui's diff renderer.
+    pub needs_clear: bool,
+
     /// Vim-style command history for the `:` jump bar.
     /// Newest entry is last. `_idx` points at the entry currently shown in
     /// the input; `None` means the user is composing a fresh entry.
@@ -179,6 +184,11 @@ fn run_app(terminal: &mut Tui, initial_translation: Option<String>) -> Result<()
     app.choose_initial_translation(initial_translation)?;
 
     while app.mode != Mode::Quit {
+        if app.needs_clear {
+            // ANSI clear + reset both buffers → next draw is a full repaint.
+            terminal.clear()?;
+            app.needs_clear = false;
+        }
         terminal.draw(|f| draw::draw(f, &app))?;
         // 100ms timeout drives the search spinner animation; idle CPU cost
         // of waking the loop 10×/sec is negligible.
@@ -239,6 +249,7 @@ impl App {
             manager_cursor: 0,
             download: None,
             event_tx,
+            needs_clear: false,
             jump_history: Vec::new(),
             jump_history_idx: None,
             search_history: Vec::new(),
@@ -275,6 +286,9 @@ impl App {
         // (different verse text → different hits).
         self.search_hits.clear();
         self.searching = None;
+        // Force a full repaint on next frame to scrub wide-char ghosts left
+        // behind by the previous translation.
+        self.needs_clear = true;
         Ok(())
     }
 
