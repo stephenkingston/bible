@@ -62,6 +62,7 @@ pub(crate) enum Mode {
     Search,
     Manager,
     Bookmarks,
+    PickSecondary,
     Help,
     NoTranslation,
     Quit,
@@ -114,6 +115,15 @@ pub(crate) struct App {
 
     pub bookmarks: Vec<crate::bookmarks::Bookmark>,
     pub bookmarks_cursor: usize,
+
+    /// Parallel-view state. `parallel` is on iff both this is true *and*
+    /// `secondary_bible` is loaded. `verse_anchor` is the topmost-visible
+    /// verse number, shared between primary and secondary panes.
+    pub parallel: bool,
+    pub secondary_bible: Option<Arc<Bible>>,
+    pub secondary_id: Option<String>,
+    pub verse_anchor: u16,
+    pub secondary_picker_cursor: usize,
 
     pub download: Option<DownloadState>,
     pub event_tx: Sender<AppEvent>,
@@ -254,6 +264,11 @@ impl App {
             manager_cursor: 0,
             bookmarks: crate::bookmarks::load(),
             bookmarks_cursor: 0,
+            parallel: false,
+            secondary_bible: None,
+            secondary_id: None,
+            verse_anchor: 1,
+            secondary_picker_cursor: 0,
             download: None,
             event_tx,
             needs_clear: false,
@@ -308,13 +323,27 @@ impl App {
             }
         }
 
+        // Restore parallel-view config if the secondary is still installed.
+        if let Some(sv) = saved.as_ref() {
+            if let Some(p) = &sv.parallel {
+                if crate::storage::is_installed(&p.secondary_translation) {
+                    if let Ok(b) = Bible::load(&p.secondary_translation) {
+                        self.secondary_bible = Some(Arc::new(b));
+                        self.secondary_id = Some(p.secondary_translation.clone());
+                        self.parallel = true;
+                    }
+                }
+            }
+        }
+
         Ok(())
     }
 
-    /// Persist current reading position (translation + chapter + scroll) to
-    /// `state.toml`. Called on quit and after every navigation that changes
-    /// the chapter. Best-effort: any error is silently swallowed because
-    /// state persistence must never block the user.
+    /// Persist current reading position (translation + chapter + scroll) and
+    /// parallel-view config to `state.toml`. Called on quit and after every
+    /// navigation that changes the chapter, plus parallel toggles. Best-
+    /// effort: any error is silently swallowed because state persistence
+    /// must never block the user.
     pub(crate) fn save_state(&self) {
         let Some(bible) = self.bible.as_ref() else {
             return;
@@ -326,6 +355,13 @@ impl App {
         let Ok(chapter) = u16::try_from(chap_u32) else {
             return;
         };
+        let parallel = if self.parallel {
+            self.secondary_id.as_ref().map(|id| crate::state::Parallel {
+                secondary_translation: id.clone(),
+            })
+        } else {
+            None
+        };
         let state = crate::state::State {
             schema_version: 1,
             last_position: Some(crate::state::LastPosition {
@@ -334,7 +370,7 @@ impl App {
                 chapter,
                 scroll: self.scroll,
             }),
-            parallel: None,
+            parallel,
         };
         let _ = crate::state::save(&state);
     }
@@ -445,6 +481,7 @@ impl App {
             },
             Mode::NoTranslation => self.handle_no_translation(k),
             Mode::Bookmarks => self.handle_bookmarks(k),
+            Mode::PickSecondary => self.handle_pick_secondary(k),
             Mode::Quit => {}
         }
         Ok(())
@@ -467,13 +504,33 @@ impl App {
                 self.open_manager();
             }
             KeyCode::Char('t') if modless => self.cycle_translation(1),
-            KeyCode::Char('j') | KeyCode::Down => self.scroll = self.scroll.saturating_add(1),
-            KeyCode::Char('k') | KeyCode::Up => self.scroll = self.scroll.saturating_sub(1),
+            KeyCode::Char('j') | KeyCode::Down => {
+                if self.parallel {
+                    self.shift_anchor(1);
+                } else {
+                    self.scroll = self.scroll.saturating_add(1);
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                if self.parallel {
+                    self.shift_anchor(-1);
+                } else {
+                    self.scroll = self.scroll.saturating_sub(1);
+                }
+            }
             KeyCode::Char('d') if k.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.scroll = self.scroll.saturating_add(10)
+                if self.parallel {
+                    self.shift_anchor(5);
+                } else {
+                    self.scroll = self.scroll.saturating_add(10);
+                }
             }
             KeyCode::Char('u') if k.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.scroll = self.scroll.saturating_sub(10)
+                if self.parallel {
+                    self.shift_anchor(-5);
+                } else {
+                    self.scroll = self.scroll.saturating_sub(10);
+                }
             }
             KeyCode::Char('h') if modless => self.go_chapter(-1),
             KeyCode::Char('l') if modless => self.go_chapter(1),
@@ -481,18 +538,30 @@ impl App {
             KeyCode::Char('L') => self.go_book(1),
             KeyCode::Char('g') if modless => {
                 if self.pending_g {
-                    self.scroll = 0;
+                    if self.parallel {
+                        self.verse_anchor = 1;
+                    } else {
+                        self.scroll = 0;
+                    }
                     self.pending_g = false;
                 } else {
                     self.pending_g = true;
                 }
                 return Ok(());
             }
-            KeyCode::Char('G') => self.scroll = u16::MAX / 2,
+            KeyCode::Char('G') => {
+                if self.parallel {
+                    self.verse_anchor = u16::MAX / 2;
+                } else {
+                    self.scroll = u16::MAX / 2;
+                }
+            }
             KeyCode::Char('n') if modless => self.advance_search_hit(1),
             KeyCode::Char('N') => self.advance_search_hit(-1),
             KeyCode::Char('b') if modless => self.bookmark_current_chapter(),
             KeyCode::Char('B') => self.open_bookmarks(),
+            KeyCode::Char('|') => self.toggle_parallel(),
+            KeyCode::Char('\\') => self.open_secondary_picker(),
             _ => {}
         }
         if !matches!(k.code, KeyCode::Char('g')) {
@@ -851,6 +920,115 @@ impl App {
         }
     }
 
+    fn shift_anchor(&mut self, dir: i32) {
+        let new = if dir >= 0 {
+            self.verse_anchor.saturating_add(dir as u16)
+        } else {
+            self.verse_anchor.saturating_sub((-dir) as u16)
+        };
+        self.verse_anchor = new.max(1);
+    }
+
+    fn toggle_parallel(&mut self) {
+        if self.parallel {
+            self.parallel = false;
+            self.set_status("parallel view: off");
+            self.needs_clear = true;
+            self.save_state();
+            return;
+        }
+        if self.installed.len() < 2 {
+            self.set_status("install another translation first (T)");
+            return;
+        }
+        if self.secondary_bible.is_some() {
+            self.parallel = true;
+            self.needs_clear = true;
+            self.save_state();
+            self.set_status(format!(
+                "parallel view: {}",
+                self.secondary_id.as_deref().unwrap_or("?")
+            ));
+        } else {
+            self.open_secondary_picker();
+        }
+    }
+
+    fn open_secondary_picker(&mut self) {
+        let primary_id = self
+            .bible
+            .as_ref()
+            .map(|b| b.translation.id.as_str())
+            .unwrap_or("");
+        let other_count = self
+            .installed
+            .iter()
+            .filter(|t| t.id != primary_id)
+            .count();
+        if other_count == 0 {
+            self.set_status("install another translation first (T)");
+            return;
+        }
+        self.secondary_picker_cursor = 0;
+        self.mode = Mode::PickSecondary;
+    }
+
+    fn handle_pick_secondary(&mut self, k: KeyEvent) {
+        let primary_id = self
+            .bible
+            .as_ref()
+            .map(|b| b.translation.id.clone())
+            .unwrap_or_default();
+        let count = self
+            .installed
+            .iter()
+            .filter(|t| t.id != primary_id)
+            .count();
+        match k.code {
+            KeyCode::Esc | KeyCode::Char('q') => self.mode = Mode::Normal,
+            KeyCode::Down | KeyCode::Char('j') => {
+                if count > 0 {
+                    self.secondary_picker_cursor =
+                        (self.secondary_picker_cursor + 1).min(count - 1);
+                }
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.secondary_picker_cursor = self.secondary_picker_cursor.saturating_sub(1);
+            }
+            KeyCode::Enter => self.pick_secondary_at_cursor(),
+            _ => {}
+        }
+    }
+
+    fn pick_secondary_at_cursor(&mut self) {
+        let primary_id = self
+            .bible
+            .as_ref()
+            .map(|b| b.translation.id.clone())
+            .unwrap_or_default();
+        let candidates: Vec<String> = self
+            .installed
+            .iter()
+            .filter(|t| t.id != primary_id)
+            .map(|t| t.id.clone())
+            .collect();
+        let Some(id) = candidates.get(self.secondary_picker_cursor).cloned() else {
+            return;
+        };
+        match Bible::load(&id) {
+            Ok(b) => {
+                self.secondary_bible = Some(Arc::new(b));
+                self.secondary_id = Some(id.clone());
+                self.parallel = true;
+                self.mode = Mode::Normal;
+                self.needs_clear = true;
+                self.save_state();
+                self.set_status(format!("parallel: {id}"));
+            }
+            Err(e) => self.set_status(format!("load failed: {e}")),
+        }
+    }
+
     fn start_install(&mut self, id: &str) {
         if self.download.is_some() {
             self.set_status("a download is already in progress");
@@ -930,18 +1108,22 @@ impl App {
                 }) {
                     self.current = Some(cr);
                     self.scroll = nav::verse_scroll(&vr);
+                    let v_u32: u32 = vr.verse().into();
+                    self.verse_anchor = u16::try_from(v_u32).unwrap_or(1);
                     moved = true;
                 }
             }
             Ok(BibleReferenceRepresentation::Single(BibleReference::BibleChapter(cr))) => {
                 self.current = Some(cr);
                 self.scroll = 0;
+                self.verse_anchor = 1;
                 moved = true;
             }
             Ok(BibleReferenceRepresentation::Single(BibleReference::BibleBook(_))) => {
                 if let Ok(cr) = nav::first_chapter_of_parsed(q) {
                     self.current = Some(cr);
                     self.scroll = 0;
+                    self.verse_anchor = 1;
                     moved = true;
                 }
             }
@@ -1018,6 +1200,8 @@ impl App {
         if let Ok(cr) = BibleChapterReference::new(vr.book(), chap) {
             self.current = Some(cr);
             self.scroll = nav::verse_scroll(&vr);
+            let v_u32: u32 = vr.verse().into();
+            self.verse_anchor = u16::try_from(v_u32).unwrap_or(1);
             self.save_state();
         }
     }
@@ -1029,6 +1213,7 @@ impl App {
         if let Some(next) = nav::shift_chapter(cur, dir) {
             self.current = Some(next);
             self.scroll = 0;
+            self.verse_anchor = 1;
             self.save_state();
         }
     }
@@ -1040,6 +1225,7 @@ impl App {
         if let Some(next) = nav::shift_book(cur, dir) {
             self.current = Some(next);
             self.scroll = 0;
+            self.verse_anchor = 1;
             self.save_state();
         }
     }

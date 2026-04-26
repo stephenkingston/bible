@@ -33,6 +33,9 @@ pub fn draw(f: &mut Frame, app: &App) {
     if app.mode == Mode::Help {
         draw_help_overlay(f, area);
     }
+    if app.mode == Mode::PickSecondary {
+        draw_pick_secondary(f, app, area);
+    }
 
     if app.download.is_some() {
         draw_download_popup(f, app, area);
@@ -52,8 +55,19 @@ fn draw_reader(f: &mut Frame, app: &App, area: Rect) {
     draw_top_bar(f, app, rows[0]);
     if app.mode == Mode::NoTranslation || app.bible.is_none() {
         draw_welcome(f, rows[1]);
+    } else if app.parallel && app.secondary_bible.is_some() {
+        let panes = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(rows[1]);
+        let primary = app.bible.as_ref().unwrap();
+        draw_chapter_pane(f, app, panes[0], primary, false);
+        if let Some(sec) = app.secondary_bible.as_ref() {
+            draw_chapter_pane(f, app, panes[1], sec, true);
+        }
     } else {
-        draw_chapter(f, app, rows[1]);
+        let primary = app.bible.as_ref().unwrap();
+        draw_chapter_pane(f, app, rows[1], primary, false);
     }
     draw_bottom_bar(f, app, rows[2]);
 }
@@ -140,28 +154,51 @@ fn draw_welcome(f: &mut Frame, area: Rect) {
     f.render_widget(p, inner);
 }
 
-fn draw_chapter(f: &mut Frame, app: &App, area: Rect) {
-    let bible = app.bible.as_ref().unwrap();
+/// Render a single chapter pane (block + scrolling chapter content). Used
+/// for both single-pane reading and each side of the parallel view.
+///
+/// `is_secondary` flips the title border colour and embeds the translation
+/// id in the title so the user can tell the two panes apart at a glance.
+fn draw_chapter_pane(
+    f: &mut Frame,
+    app: &App,
+    area: Rect,
+    bible: &crate::bible::Bible,
+    is_secondary: bool,
+) {
     let Some(cr) = app.current.as_ref() else {
         return;
     };
 
+    let border_color = if is_secondary {
+        Color::Magenta
+    } else {
+        Color::Indexed(24)
+    };
+
+    let mut title_spans = vec![Span::raw(" ")];
+    if app.parallel || is_secondary {
+        title_spans.push(Span::styled(
+            bible.translation.id.clone(),
+            Style::default().fg(Color::Magenta).bold(),
+        ));
+        title_spans.push(Span::raw(" │ "));
+    }
+    title_spans.push(Span::styled(
+        book_display(&cr.book()),
+        Style::default().fg(Color::Cyan).bold(),
+    ));
+    title_spans.push(Span::raw(" "));
+    title_spans.push(Span::styled(
+        cr.chapter().to_string(),
+        Style::default().fg(Color::Yellow).bold(),
+    ));
+    title_spans.push(Span::raw(" "));
+
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Indexed(24)))
-        .title(Line::from(vec![
-            Span::raw(" "),
-            Span::styled(
-                book_display(&cr.book()),
-                Style::default().fg(Color::Cyan).bold(),
-            ),
-            Span::raw(" "),
-            Span::styled(
-                cr.chapter().to_string(),
-                Style::default().fg(Color::Yellow).bold(),
-            ),
-            Span::raw(" "),
-        ]));
+        .border_style(Style::default().fg(border_color))
+        .title(Line::from(title_spans));
     let inner = block.inner(area);
     f.render_widget(block, area);
 
@@ -189,43 +226,25 @@ fn draw_chapter(f: &mut Frame, app: &App, area: Rect) {
         }
     };
 
-    // Manual wrap + per-row render. Each visible row is rendered as its own
-    // Line widget into a single-row Rect, with the content space-padded to
-    // exactly inner.width display columns. This guarantees every cell in
-    // the chapter area is written each frame, so wide-char "skip" cells
-    // from a previous chapter / scroll position can't survive as ghosts.
-    let highlight_verse = highlighted_verse_for(app, cr);
+    let highlight_verse = if is_secondary {
+        None
+    } else {
+        highlighted_verse_for(app, cr)
+    };
     let prefix_w: usize = 4; // "{:>3} "
     let avail = (inner.width as usize).saturating_sub(prefix_w).max(1);
+    let rows = build_rows(chapter, avail, highlight_verse);
 
-    // Build the full list of (highlighted, prefix, content) rows for the
-    // entire chapter, then window into it by app.scroll.
-    let mut rows: Vec<Row> = Vec::new();
-    rows.push(Row::blank());
-    for verse in &chapter.verses {
-        let highlighted = Some(verse.number) == highlight_verse;
-        let wrapped = wrap_to_width(&verse.text, avail);
-        let pieces = if wrapped.is_empty() {
-            vec![String::new()]
-        } else {
-            wrapped
-        };
-        for (i, content) in pieces.into_iter().enumerate() {
-            let prefix = if i == 0 {
-                format!("{:>3} ", verse.number)
-            } else {
-                "    ".to_string()
-            };
-            rows.push(Row {
-                highlighted,
-                prefix,
-                content,
-            });
-        }
-    }
+    // Single-pane reads `app.scroll` (line offset). Parallel mode reads
+    // `app.verse_anchor` and finds each pane's own row index for that verse,
+    // so different wrap shapes don't desync.
+    let start = if app.parallel {
+        first_row_for_verse(&rows, app.verse_anchor.max(1))
+    } else {
+        app.scroll as usize
+    };
 
     let visible = inner.height as usize;
-    let start = app.scroll as usize;
     for (row_idx, row) in rows.iter().skip(start).take(visible).enumerate() {
         let row_area = Rect::new(inner.x, inner.y + row_idx as u16, inner.width, 1);
         let num_style = if row.highlighted {
@@ -249,8 +268,7 @@ fn draw_chapter(f: &mut Frame, app: &App, area: Rect) {
         );
     }
 
-    // Blank any unused trailing rows when the chapter is shorter than the
-    // viewport so a longer previous chapter can't bleed through.
+    // Blank any trailing rows when the chapter is shorter than the viewport.
     let rendered = rows.len().saturating_sub(start).min(visible);
     for row_idx in rendered..visible {
         let row_area = Rect::new(inner.x, inner.y + row_idx as u16, inner.width, 1);
@@ -399,6 +417,9 @@ struct Row {
     highlighted: bool,
     prefix: String,
     content: String,
+    /// Verse number this row belongs to. `None` for blank/spacer rows. Used
+    /// by parallel view to align both panes by verse.
+    verse: Option<u16>,
 }
 
 impl Row {
@@ -407,8 +428,57 @@ impl Row {
             highlighted: false,
             prefix: String::new(),
             content: String::new(),
+            verse: None,
         }
     }
+}
+
+/// Build the wrapped, prefix-decorated row list for a chapter at a given
+/// inner content width. Used by both single-pane and parallel-pane render.
+fn build_rows(
+    chapter: &crate::bible::Chapter,
+    avail: usize,
+    highlight_verse: Option<u16>,
+) -> Vec<Row> {
+    let mut rows: Vec<Row> = Vec::new();
+    rows.push(Row::blank());
+    for verse in &chapter.verses {
+        let highlighted = Some(verse.number) == highlight_verse;
+        let wrapped = wrap_to_width(&verse.text, avail);
+        let pieces = if wrapped.is_empty() {
+            vec![String::new()]
+        } else {
+            wrapped
+        };
+        for (i, content) in pieces.into_iter().enumerate() {
+            let prefix = if i == 0 {
+                format!("{:>3} ", verse.number)
+            } else {
+                "    ".to_string()
+            };
+            rows.push(Row {
+                highlighted,
+                prefix,
+                content,
+                verse: Some(verse.number),
+            });
+        }
+    }
+    rows
+}
+
+/// Find the first row in `rows` whose verse number is `>= target`. Used to
+/// align two parallel panes by verse — each pane finds its own scroll-start
+/// independently, but they share the same verse anchor.
+fn first_row_for_verse(rows: &[Row], target: u16) -> usize {
+    for (i, r) in rows.iter().enumerate() {
+        if let Some(v) = r.verse {
+            if v >= target {
+                return i;
+            }
+        }
+    }
+    rows.len().saturating_sub(1)
 }
 
 /// Word-wrap `text` to lines whose display width does not exceed `max_width`,
@@ -763,12 +833,73 @@ fn draw_help_overlay(f: &mut Frame, area: Rect) {
         Line::from(Span::styled("Translations", Style::default().bold().fg(Color::Yellow))),
         Line::from("  T              translation manager"),
         Line::from("  t              cycle installed translations"),
+        Line::from("  |              toggle parallel view (two translations side-by-side)"),
+        Line::from("  \\              swap the parallel-view secondary translation"),
         Line::from(""),
         Line::from(Span::styled("Misc", Style::default().bold().fg(Color::Yellow))),
         Line::from("  ?              this help (Esc to close)"),
         Line::from("  q              quit"),
     ];
     f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
+}
+
+fn draw_pick_secondary(f: &mut Frame, app: &App, area: Rect) {
+    let popup = centered_rect(60, 60, area);
+    f.render_widget(Clear, popup);
+    let block = Block::default()
+        .title(" Pick parallel translation ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Magenta));
+    let inner = block.inner(popup);
+    f.render_widget(block, popup);
+
+    let primary_id = app
+        .bible
+        .as_ref()
+        .map(|b| b.translation.id.as_str())
+        .unwrap_or("");
+    let candidates: Vec<&crate::bible::TranslationInfo> = app
+        .installed
+        .iter()
+        .filter(|t| t.id != primary_id)
+        .collect();
+
+    if candidates.is_empty() {
+        let msg = Line::from(Span::styled(
+            "  Install another translation first (T → install).",
+            Style::default().add_modifier(Modifier::DIM),
+        ));
+        f.render_widget(msg, inner);
+        return;
+    }
+
+    let items: Vec<ListItem> = candidates
+        .iter()
+        .enumerate()
+        .map(|(i, t)| {
+            let style = if i == app.secondary_picker_cursor {
+                Style::default().bg(Color::Indexed(236))
+            } else {
+                Style::default()
+            };
+            ListItem::new(Line::from(vec![
+                Span::raw(" "),
+                Span::styled(
+                    format!("{:30}", t.id),
+                    Style::default().fg(Color::Cyan),
+                ),
+                Span::raw("  "),
+                Span::raw(t.display_name.clone()),
+                Span::raw("  "),
+                Span::styled(
+                    format!("({})", t.language),
+                    Style::default().add_modifier(Modifier::DIM),
+                ),
+            ]))
+            .style(style)
+        })
+        .collect();
+    f.render_widget(List::new(items), inner);
 }
 
 fn draw_download_popup(f: &mut Frame, app: &App, area: Rect) {
