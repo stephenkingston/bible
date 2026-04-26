@@ -12,6 +12,15 @@ use super::{App, Mode, SPINNER_FRAMES};
 pub fn draw(f: &mut Frame, app: &App) {
     let area = f.area();
 
+    // Wipe the frame area at the top of every draw. ratatui's Buffer marks
+    // the second column of a wide unicode glyph as a "skip" cell; if the
+    // next frame writes a 1-column ASCII char in its place, the skip cell
+    // is left dangling and renders as a stray glyph. Switching from
+    // Tamil/CJK to English exposes this. `Clear` calls Cell::reset on
+    // every position, killing the skip markers; the terminal's diff
+    // renderer means unchanged cells still aren't re-transmitted.
+    f.render_widget(Clear, area);
+
     match app.mode {
         Mode::Manager => draw_manager(f, app, area),
         _ => draw_reader(f, app, area),
