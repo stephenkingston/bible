@@ -86,7 +86,10 @@ fn draw_top_bar(f: &mut Frame, app: &App, area: Rect) {
         ),
         Span::styled(" quit", Style::default().add_modifier(Modifier::DIM)),
     ]);
-    f.render_widget(Paragraph::new(line), area);
+    // Render Line directly (not via Paragraph). Line is a Widget in
+    // ratatui 0.30 and is documented to "always render as a single line",
+    // truncating at the right edge — no chance of consuming extra rows.
+    f.render_widget(line, area);
 }
 
 fn draw_welcome(f: &mut Frame, area: Rect) {
@@ -229,10 +232,12 @@ fn draw_bottom_bar(f: &mut Frame, app: &App, area: Rect) {
             }
         }
     };
-    // Paragraph (no .wrap()) doesn't soft-wrap, but does honor explicit
-    // newlines as line breaks. We strip them above so the bar is always
-    // exactly one row regardless of error message contents.
-    f.render_widget(Paragraph::new(line), area);
+    // Render Line directly. Line implements Widget and is documented to
+    // always render as one row, clipping (not wrapping) at the right edge,
+    // and to strip newlines on construction — so the bottom bar is
+    // structurally guaranteed to occupy exactly `area.height` (= 1) rows
+    // regardless of what's in the status string.
+    f.render_widget(line, area);
 }
 
 fn sanitize_one_line(s: &str) -> String {

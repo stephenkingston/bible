@@ -136,10 +136,18 @@ fn teardown_terminal() -> Result<()> {
 }
 
 fn install_panic_hook() {
+    let main_thread = thread::current().id();
     let original = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        let _ = teardown_terminal();
-        original(info);
+        if thread::current().id() == main_thread {
+            // Main-thread panic: restore the terminal so the trace is
+            // visible, then run the default printer.
+            let _ = teardown_terminal();
+            original(info);
+        }
+        // Worker-thread panic: stay silent. catch_unwind in the worker
+        // captures the payload and reports it via mpsc; printing here
+        // would scroll the alternate-screen TUI.
     }));
 }
 
@@ -571,16 +579,35 @@ impl App {
         thread::spawn(move || {
             let id_for_progress = id.clone();
             let tx_progress = tx.clone();
-            let mut progress = move |bytes: u64, total: Option<u64>| {
-                let _ = tx_progress.send(AppEvent::DownloadProgress {
-                    id: id_for_progress.clone(),
-                    bytes,
-                    total,
-                });
+            // Catch any panic from the worker so the default panic handler
+            // never gets a chance to write the panic message to stderr —
+            // which would otherwise scroll the alternate-screen TUI and
+            // push the header out of view.
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+                move || {
+                    let mut progress = move |bytes: u64, total: Option<u64>| {
+                        let _ = tx_progress.send(AppEvent::DownloadProgress {
+                            id: id_for_progress.clone(),
+                            bytes,
+                            total,
+                        });
+                    };
+                    crate::download::install(&id, Some(&mut progress))
+                        .map(|b| b.translation)
+                        .map_err(|e| e.to_string())
+                },
+            ));
+            let result = match result {
+                Ok(r) => r,
+                Err(panic) => {
+                    let msg = panic
+                        .downcast_ref::<&str>()
+                        .map(|s| (*s).to_string())
+                        .or_else(|| panic.downcast_ref::<String>().cloned())
+                        .unwrap_or_else(|| "panic during download".to_string());
+                    Err(msg)
+                }
             };
-            let result = crate::download::install(&id, Some(&mut progress))
-                .map(|b| b.translation)
-                .map_err(|e| e.to_string());
             let _ = tx.send(AppEvent::DownloadDone { id, result });
         });
         self.set_status("downloading…");
