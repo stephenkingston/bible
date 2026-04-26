@@ -345,24 +345,53 @@ fn write_graphemes(buf: &mut Buffer, mut x: u16, y: u16, x_end: u16, text: &str,
 
 /// Display width for a single grapheme cluster.
 ///
-/// Any non-ASCII grapheme whose `unicode-width` is 1 is bumped to 2 columns.
-/// Many monospace terminal fonts render complex-script glyphs (Tamil base
-/// letters like ஆ, Devanagari, Arabic, …) wider than one cell, so without
-/// the extra cell of breathing room, neighbouring characters land on top of
-/// the glyph's overflow and overlap. Even single-codepoint Tamil letters
-/// hit this — the multi-codepoint check we used initially wasn't enough.
+/// `unicode-width` reflects the Unicode East Asian Width property and is
+/// agnostic to font rendering. Many monospace terminal fonts render
+/// complex-script glyphs wider than the property suggests, leaving the
+/// next character to overlap into the glyph. We compensate with two tiers
+/// of bump:
 ///
-/// Trade-off: if the font does render the glyph narrow, this leaves a
-/// visible gap; if it renders wide, the spacing is correct. Either way,
-/// no overlap. Slightly over-pads precomposed Latin diacritics (ä, é, …)
-/// but the chapter text in those translations is dominated by ASCII.
+/// - Non-ASCII graphemes that contain a *wide-extending* mark (Tamil
+///   vowel signs that stretch horizontally beyond the base letter, like
+///   `ா`, `ை`, `ெ`) get 3 columns. 2 isn't enough — base + extending
+///   sign visually consumes more than two cells in most Tamil fonts.
+/// - Other non-ASCII graphemes get 2 columns. Covers single-codepoint
+///   Tamil letters (`ஆ`), narrow-vowel combinations (`தி` where `ி`
+///   sits above the base), CJK already-wide letters (no-op), Latin
+///   diacritics, etc.
+///
+/// Trade-off: if the font *is* narrow, we leave a visible gap; if it's
+/// wide, spacing is correct. Either way, no overlap.
 fn display_width(g: &str) -> usize {
     let raw = UnicodeWidthStr::width(g);
     if raw == 0 {
         return 0;
     }
-    let is_ascii = g.bytes().all(|b| b < 0x80);
-    if !is_ascii && raw < 2 { 2 } else { raw }
+    if g.bytes().all(|b| b < 0x80) {
+        return raw;
+    }
+    if g.chars().any(is_wide_extending_mark) {
+        return raw.max(3);
+    }
+    raw.max(2)
+}
+
+/// True for combining marks that visually *extend* horizontally beyond the
+/// base letter (as opposed to compact marks that sit above/below). Hand-
+/// curated for Tamil — the only complex script the user has reported
+/// trouble with so far. Easy to extend to Devanagari/Bengali/Sinhala/
+/// etc. as needed.
+fn is_wide_extending_mark(c: char) -> bool {
+    matches!(c,
+        // Tamil aa-sign
+        '\u{0BBE}'
+        // Tamil e-, ee-, ai-sign (left-side, two-part with ai)
+        | '\u{0BC6}'..='\u{0BC8}'
+        // Tamil o-, oo-, au-sign (two-part)
+        | '\u{0BCA}'..='\u{0BCC}'
+        // Tamil au-length-mark
+        | '\u{0BD7}'
+    )
 }
 
 struct Row {
