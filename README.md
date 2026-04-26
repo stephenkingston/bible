@@ -1,51 +1,127 @@
-# Bible
+# bible
 
-Use the Bible in Rust!
+A beautiful TUI Bible reader, with translations downloaded on demand from the
+[Beblia Holy-Bible-XML-Format](https://github.com/Beblia/Holy-Bible-XML-Format)
+repository (200+ languages, 1000+ versions). No texts are embedded in the
+binary.
 
-## Example usage
+Canonical reference handling (parsing `John 3:16`, validating chapters/verses,
+multilingual references) is delegated to the
+[`bibleref`](https://crates.io/crates/bibleref) crate.
+
+## Install
+
+```sh
+cargo install bible
+```
+
+## Use as a TUI
+
+```sh
+bible                       # launches the TUI when stdout is a TTY
+```
+
+On first run there are no translations. Press `i` to install English KJV, or
+`T` to browse the catalog. From the shell:
+
+```sh
+bible install kjv
+```
+
+### Keybindings (Reader)
+
+| Key            | Action                                  |
+| -------------- | --------------------------------------- |
+| `j` / `k`      | scroll one line                         |
+| `Ctrl-d/u`     | half-page scroll                        |
+| `gg` / `G`     | top / bottom of chapter                 |
+| `h` / `l`      | previous / next chapter                 |
+| `H` / `L`      | previous / next book                    |
+| `:`            | jump to a reference (e.g. `:John 3:16`) |
+| `/`, `n`, `N`  | search, next, previous match            |
+| `t`            | cycle installed translations            |
+| `T`            | open Translation Manager                |
+| `?`            | help overlay                            |
+| `q`            | quit                                    |
+
+### Translation Manager
+
+| Key       | Action                            |
+| --------- | --------------------------------- |
+| `j` / `k` | move selection                    |
+| `Enter`   | install or uninstall              |
+| `r`       | refresh catalog from GitHub       |
+| any text  | filter (id / name / language)     |
+| `Esc`     | back to Reader                    |
+
+## Use as a CLI
+
+When stdout is not a TTY (piped/redirected), or when a subcommand is given,
+`bible` runs headlessly:
+
+```sh
+bible read "John 3:16"
+bible read "Acts 2"
+bible search "Jesus"
+bible list                 # installed
+bible list --available     # downloadable (after `bible refresh`)
+bible install kjv
+bible uninstall kjv
+bible refresh              # pull the full catalog from GitHub once
+```
+
+Pass `--translation <id>` to target a specific translation when several are
+installed.
+
+## Use as a library
 
 ```rust
-use bible::{
-    Bible,
-    BookName::Acts,
-    ChapterReference,
-    Edition,
-    SearchResults,
-    VerseReference
-};
-use std::error::Error;
+use bible::{Bible, reference};
 
-fn main() -> Result<(), Box<dyn Error>> {
-    let bible = Bible::new(Edition::EnglishKingJames);
+fn main() -> bible::Result<()> {
+    let bible = Bible::load("EnglishKJBible")?;
 
-    // Get a full chapter
-    let chapter = bible
-        .get_chapter(&ChapterReference::new(Acts, 2))
-        .ok_or("Chapter not found")?;
-    println!("{}", chapter);
+    // bibleref handles parsing of `John 3:16`, `Jn 3,16`, etc.
+    let parsed = reference::parse("John 3:16")?;
 
-    // Get a verse
-    let verse = bible
-        .get_verse(&VerseReference::new(Acts, 2, 1))
-        .ok_or("Verse not found")?;
-    println!("{}", verse);
-
-    // Search - returns a vector of VerseReference(s)
-    let results: SearchResults = bible.search("Jesus");
-    for reference in results.references {
-        println!();
-        println!("{}", &reference);
-        let verse = bible
-            .get_verse(&reference)
-            .ok_or("Verse not found")?;
-        println!("{}", verse);
-    }
+    // Search the whole text (case-insensitive, diacritic-folded).
+    let hits = bible.search_substring("love");
+    println!("{} hits", hits.len());
 
     Ok(())
 }
-
 ```
+
+## Where translations live
+
+Paths come from
+[`directories::ProjectDirs`](https://docs.rs/directories) — the standard data
+and config locations for each platform:
+
+| OS      | Data                                                       | Config                                    |
+| ------- | ---------------------------------------------------------- | ----------------------------------------- |
+| Linux   | `~/.local/share/bible/`                                    | `~/.config/bible/`                        |
+| macOS   | `~/Library/Application Support/com.stephenkingston.bible/` | same as data                              |
+| Windows | `%APPDATA%\stephenkingston\bible\data\`                    | `%APPDATA%\stephenkingston\bible\config\` |
+
+Each installed translation lives at `translations/<id>/`, containing
+`bible.bin` (bincode-serialised) and `meta.json`.
+
+## Limitations
+
+- v1 supports the 66-book Protestant canon only. Apocryphal / deuterocanonical
+  books shipped by some Beblia translations are dropped on import with a
+  warning. Hybrid canon support is a planned follow-up.
+- Reference *ranges* (`John 3:16-18`) parse but aren't fully wired into the
+  reader yet.
 
 ## Credit
 
-Obtained XML source Bible files from [Holy Bible XML Format](https://github.com/Beblia/Holy-Bible-XML-Format). Thanks, Andrey!
+Bible XML files come from
+[Holy Bible XML Format](https://github.com/Beblia/Holy-Bible-XML-Format) by
+Andrey at Beblia. Reference parsing uses the
+[`bibleref`](https://crates.io/crates/bibleref) crate.
+
+## Licence
+
+GPL-2.0-or-later.

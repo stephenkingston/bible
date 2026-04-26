@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bible translation="Test KJV" status="Public Domain">
+  <testament name="Old">
+    <book number="1">
+      <chapter number="1">
+        <verse number="1">In the beginning God created the heaven and the earth.</verse>
+        <verse number="2">And the earth was without form, and void; and darkness was upon the face of the deep. And the Spirit of God moved upon the face of the waters.</verse>
+        <verse number="3">And God said, Let there be light: and there was light.</verse>
+      </chapter>
+      <chapter number="2">
+        <verse number="1">Thus the heavens and the earth were finished, and all the host of them.</verse>
+      </chapter>
+    </book>
+  </testament>
+  <testament name="New">
+    <book number="43">
+      <chapter number="3">
+        <verse number="16">For God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life.</verse>
+        <verse number="17">For God sent not his Son into the world to condemn the world; but that the world through him might be saved.</verse>
+      </chapter>
+    </book>
+    <book number="44">
+      <chapter number="2">
+        <verse number="1">And when the day of Pentecost was fully come, they were all with one accord in one place.</verse>
+      </chapter>
+    </book>
+  </testament>
+</bible>

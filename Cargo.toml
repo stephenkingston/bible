@@ -1,29 +1,39 @@
 [package]
 name = "bible"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 license = "GPL-2.0-or-later"
-description = "Use the Bible in Rust"
+description = "A beautiful TUI Bible reader with on-demand translation downloads"
 repository = "https://github.com/stephenkingston/bible"
-exclude = ["/xml", "src/bin/preprocess.rs"]
+readme = "README.md"
+keywords = ["bible", "tui", "scripture", "ratatui"]
+categories = ["command-line-utilities", "text-processing"]
+exclude = ["/tests/fixtures", "/screenshots"]
 
 [dependencies]
-bincode = "2.0.1"
-serde_json = "1.0.140"
-walkdir = "2.5.0"
-xmltree = "0.11.0"
-zip = "2.6.1"
+# Core / library
+bibleref = "0.4"
+bincode = { version = "2.0.1", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+quick-xml = "0.36"
+directories = "5"
+ureq = { version = "2", default-features = false, features = ["tls", "json"] }
+thiserror = "1"
+anyhow = "1"
+unicode-normalization = "0.1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 
-[[bin]]
-name = "preprocess"
-path = "src/bin/preprocess.rs"
+# TUI / CLI
+ratatui = "0.29"
+crossterm = "0.28"
+tui-input = "0.10"
+clap = { version = "4", features = ["derive"] }
 
 [[bin]]
 name = "bible"
 path = "src/bin/bible.rs"
 
-[features]
-english-kjv = []
-english-asv = []
-default = ["english-kjv"]
-
+[profile.release]
+lto = "thin"
+strip = true

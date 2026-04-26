@@ -1,0 +1,29 @@
+{
+  "last_refreshed": null,
+  "tree_sha": null,
+  "translations": [
+    { "id": "EnglishKJBible", "display_name": "English KJV", "language": "English" },
+    { "id": "EnglishASVBible", "display_name": "English ASV", "language": "English" },
+    { "id": "EnglishWEBBible", "display_name": "English WEB", "language": "English" },
+    { "id": "EnglishYLTBible", "display_name": "English YLT (Young's Literal)", "language": "English" },
+    { "id": "EnglishDarbyBible", "display_name": "English Darby", "language": "English" },
+    { "id": "EnglishDouayRheimsBible", "display_name": "English Douay-Rheims", "language": "English" },
+    { "id": "EnglishGenevaBible", "display_name": "English Geneva", "language": "English" },
+    { "id": "Afrikaans1983Bible", "display_name": "Afrikaans 1983", "language": "Afrikaans" },
+    { "id": "ArabicBible", "display_name": "Arabic (Smith & Van Dyke)", "language": "Arabic" },
+    { "id": "ChineseUnionBible", "display_name": "Chinese Union", "language": "Chinese" },
+    { "id": "DutchBible", "display_name": "Dutch (Statenvertaling)", "language": "Dutch" },
+    { "id": "FrenchLouisSegondBible", "display_name": "French Louis Segond", "language": "French" },
+    { "id": "GermanLutherBible", "display_name": "German Luther", "language": "German" },
+    { "id": "GreekBible", "display_name": "Greek (Modern)", "language": "Greek" },
+    { "id": "HebrewBible", "display_name": "Hebrew (Westminster)", "language": "Hebrew" },
+    { "id": "ItalianRivedutaBible", "display_name": "Italian Riveduta", "language": "Italian" },
+    { "id": "KoreanBible", "display_name": "Korean", "language": "Korean" },
+    { "id": "LatinVulgateBible", "display_name": "Latin Vulgate", "language": "Latin" },
+    { "id": "PortugueseAlmeidaBible", "display_name": "Portuguese Almeida", "language": "Portuguese" },
+    { "id": "RussianSynodalBible", "display_name": "Russian Synodal", "language": "Russian" },
+    { "id": "SpanishReinaValeraBible", "display_name": "Spanish Reina-Valera", "language": "Spanish" },
+    { "id": "TamilBible", "display_name": "Tamil", "language": "Tamil" },
+    { "id": "VietnameseBible", "display_name": "Vietnamese", "language": "Vietnamese" }
+  ]
+}
