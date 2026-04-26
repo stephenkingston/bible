@@ -3,6 +3,7 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Gauge, List, ListItem, Paragraph, Wrap};
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::reference::book_display;
 use crate::storage;
@@ -164,38 +165,172 @@ fn draw_chapter(f: &mut Frame, app: &App, area: Rect) {
     let chapter = match bible.get_chapter(cr) {
         Some(c) => c,
         None => {
-            let msg = Paragraph::new("(chapter not present in this translation)")
-                .style(Style::default().add_modifier(Modifier::DIM));
-            f.render_widget(msg, inner);
+            let line = Line::from(Span::styled(
+                pad_line("(chapter not present in this translation)", inner.width as usize),
+                Style::default().add_modifier(Modifier::DIM),
+            ));
+            f.render_widget(line, inner);
             return;
         }
     };
 
-    let mut lines: Vec<Line> = Vec::with_capacity(chapter.verses.len() + 2);
-    lines.push(Line::from(""));
+    // Manual wrap + per-row render. Each visible row is rendered as its own
+    // Line widget into a single-row Rect, with the content space-padded to
+    // exactly inner.width display columns. This guarantees every cell in
+    // the chapter area is written each frame, so wide-char "skip" cells
+    // from a previous chapter / scroll position can't survive as ghosts.
     let highlight_verse = highlighted_verse_for(app, cr);
+    let prefix_w: usize = 4; // "{:>3} "
+    let avail = (inner.width as usize).saturating_sub(prefix_w).max(1);
+
+    // Build the full list of (highlighted, prefix, content) rows for the
+    // entire chapter, then window into it by app.scroll.
+    let mut rows: Vec<Row> = Vec::new();
+    rows.push(Row::blank());
     for verse in &chapter.verses {
         let highlighted = Some(verse.number) == highlight_verse;
-        let num_style = if highlighted {
+        let wrapped = wrap_to_width(&verse.text, avail);
+        let pieces = if wrapped.is_empty() {
+            vec![String::new()]
+        } else {
+            wrapped
+        };
+        for (i, content) in pieces.into_iter().enumerate() {
+            let prefix = if i == 0 {
+                format!("{:>3} ", verse.number)
+            } else {
+                "    ".to_string()
+            };
+            rows.push(Row {
+                highlighted,
+                prefix,
+                content,
+            });
+        }
+    }
+
+    let visible = inner.height as usize;
+    let start = app.scroll as usize;
+    for (row_idx, row) in rows.iter().skip(start).take(visible).enumerate() {
+        let row_area = Rect::new(inner.x, inner.y + row_idx as u16, inner.width, 1);
+        let num_style = if row.highlighted {
             Style::default().fg(Color::Black).bg(Color::Yellow).bold()
         } else {
             Style::default().fg(Color::Indexed(244))
         };
-        let text_style = if highlighted {
+        let text_style = if row.highlighted {
             Style::default().bold()
         } else {
             Style::default()
         };
-        lines.push(Line::from(vec![
-            Span::styled(format!("{:>3} ", verse.number), num_style),
-            Span::styled(verse.text.clone(), text_style),
-        ]));
+        let prefix_actual_w = UnicodeWidthStr::width(row.prefix.as_str());
+        let content_target = (inner.width as usize).saturating_sub(prefix_actual_w);
+        let content_padded = pad_line(&row.content, content_target);
+        let line = Line::from(vec![
+            Span::styled(row.prefix.clone(), num_style),
+            Span::styled(content_padded, text_style),
+        ]);
+        f.render_widget(line, row_area);
     }
 
-    let p = Paragraph::new(lines)
-        .wrap(Wrap { trim: false })
-        .scroll((app.scroll, 0));
-    f.render_widget(p, inner);
+    // Pad any unused trailing rows (when the chapter is shorter than the
+    // viewport) with explicit blanks so previous-frame content can't show.
+    let rendered = rows.len().saturating_sub(start).min(visible);
+    for row_idx in rendered..visible {
+        let row_area = Rect::new(inner.x, inner.y + row_idx as u16, inner.width, 1);
+        let line = Line::from(Span::raw(pad_line("", inner.width as usize)));
+        f.render_widget(line, row_area);
+    }
+}
+
+struct Row {
+    highlighted: bool,
+    prefix: String,
+    content: String,
+}
+
+impl Row {
+    fn blank() -> Self {
+        Row {
+            highlighted: false,
+            prefix: String::new(),
+            content: String::new(),
+        }
+    }
+}
+
+/// Pad `s` with spaces so its display width is exactly `target` columns.
+/// If already at or past `target`, returns `s` unchanged. Display width
+/// uses `unicode-width` so wide CJK/Tamil glyphs are accounted for.
+fn pad_line(s: &str, target: usize) -> String {
+    let cur = UnicodeWidthStr::width(s);
+    if cur >= target {
+        return s.to_string();
+    }
+    let mut out = String::with_capacity(s.len() + (target - cur));
+    out.push_str(s);
+    for _ in 0..(target - cur) {
+        out.push(' ');
+    }
+    out
+}
+
+/// Word-wrap `text` to lines whose display width does not exceed `max_width`.
+/// Words longer than `max_width` are broken character-by-character.
+fn wrap_to_width(text: &str, max_width: usize) -> Vec<String> {
+    if max_width == 0 {
+        return vec![text.to_string()];
+    }
+    let mut lines: Vec<String> = Vec::new();
+    let mut cur = String::new();
+    let mut cur_w: usize = 0;
+
+    for word in text.split_whitespace() {
+        let word_w: usize = word
+            .chars()
+            .map(|c| UnicodeWidthChar::width(c).unwrap_or(0))
+            .sum();
+        let needed = if cur.is_empty() {
+            word_w
+        } else {
+            cur_w + 1 + word_w
+        };
+        if needed > max_width && !cur.is_empty() {
+            lines.push(std::mem::take(&mut cur));
+            cur_w = 0;
+        }
+        if word_w > max_width {
+            // Word doesn't fit even on its own line — break it grapheme by
+            // grapheme. Flush any pending cur first.
+            if !cur.is_empty() {
+                lines.push(std::mem::take(&mut cur));
+                cur_w = 0;
+            }
+            for ch in word.chars() {
+                let cw = UnicodeWidthChar::width(ch).unwrap_or(0);
+                if cur_w + cw > max_width {
+                    lines.push(std::mem::take(&mut cur));
+                    cur_w = 0;
+                }
+                cur.push(ch);
+                cur_w += cw;
+            }
+            continue;
+        }
+        if !cur.is_empty() {
+            cur.push(' ');
+            cur_w += 1;
+        }
+        cur.push_str(word);
+        cur_w += word_w;
+    }
+    if !cur.is_empty() {
+        lines.push(cur);
+    }
+    if lines.is_empty() {
+        lines.push(String::new());
+    }
+    lines
 }
 
 fn highlighted_verse_for(
