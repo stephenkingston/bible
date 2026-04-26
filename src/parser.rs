@@ -84,7 +84,10 @@ pub fn parse_xml(xml: &str, id: &str) -> Result<Bible> {
             },
             Ok(Event::Text(t)) => {
                 if current_verse_num.is_some() && !skip_book {
-                    let s = t.unescape().map_err(|e| Error::Xml(e.to_string()))?;
+                    // quick-xml 0.39 replaced `unescape()` with spec-specific
+                    // content methods. Beblia files are XML 1.0; xml_content
+                    // handles entity expansion and EOL normalisation.
+                    let s = t.xml_content().map_err(|e| Error::Xml(e.to_string()))?;
                     current_verse_text.push_str(&s);
                 }
             }
