@@ -13,21 +13,24 @@ exclude = ["/tests/fixtures", "/screenshots"]
 [dependencies]
 # Core / library
 bibleref = "0.4"
-bincode = { version = "2.0.1", features = ["serde"] }
+# Pinned: bincode 3.0.0 was published as a tombstone-only release after the
+# project went unmaintained. 2.0.1 is the last working version.
+bincode = { version = "=2.0.1", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-quick-xml = "0.36"
+quick-xml = "0.39"
 directories = "5"
-ureq = { version = "2", default-features = false, features = ["tls", "json"] }
-thiserror = "1"
+ureq = { version = "3", features = ["json"] }
+thiserror = "2"
 anyhow = "1"
 unicode-normalization = "0.1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 
 # TUI / CLI
-ratatui = "0.29"
-crossterm = "0.28"
-tui-input = "0.10"
+# crossterm_0_29 explicitly pins ratatui's crossterm dep to match our own.
+ratatui = { version = "0.30", default-features = false, features = ["crossterm_0_29", "underline-color", "all-widgets", "macros", "layout-cache"] }
+crossterm = "0.29"
+tui-input = "0.15"
 clap = { version = "4", features = ["derive"] }
 
 [[bin]]

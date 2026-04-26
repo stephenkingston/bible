@@ -69,19 +69,23 @@ struct TreeEntry {
 }
 
 pub fn refresh() -> Result<CachedManifest> {
-    let agent = ureq::AgentBuilder::new()
-        .timeout(Duration::from_secs(30))
+    let config = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(30)))
         .user_agent(concat!("bible-tui/", env!("CARGO_PKG_VERSION")))
         .build();
+    let agent: ureq::Agent = config.into();
 
-    let resp: TreeResponse = agent
+    let mut resp = agent
         .get(TREES_URL)
         .call()
-        .map_err(|e| Error::Http(e.to_string()))?
-        .into_json()
         .map_err(|e| Error::Http(e.to_string()))?;
 
-    let mut translations: Vec<AvailableTranslation> = resp
+    let parsed: TreeResponse = resp
+        .body_mut()
+        .read_json()
+        .map_err(|e| Error::Http(e.to_string()))?;
+
+    let mut translations: Vec<AvailableTranslation> = parsed
         .tree
         .into_iter()
         .filter(|e| e.kind == "blob" && e.path.ends_with("Bible.xml") && !e.path.contains('/'))
@@ -101,7 +105,7 @@ pub fn refresh() -> Result<CachedManifest> {
 
     let cache = CachedManifest {
         last_refreshed: Some(chrono::Utc::now().to_rfc3339()),
-        tree_sha: Some(resp.sha),
+        tree_sha: Some(parsed.sha),
         translations,
     };
 
