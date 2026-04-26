@@ -577,6 +577,7 @@ impl App {
         let id = id.to_string();
         let tx = self.event_tx.clone();
         thread::spawn(move || {
+            let id_for_install = id.clone();
             let id_for_progress = id.clone();
             let tx_progress = tx.clone();
             // Catch any panic from the worker so the default panic handler
@@ -592,7 +593,7 @@ impl App {
                             total,
                         });
                     };
-                    crate::download::install(&id, Some(&mut progress))
+                    crate::download::install(&id_for_install, Some(&mut progress))
                         .map(|b| b.translation)
                         .map_err(|e| e.to_string())
                 },
