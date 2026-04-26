@@ -37,3 +37,17 @@ pub use crate::reference::{
     BibleVerseReference,
 };
 pub use crate::search::SearchHit;
+
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static QUIET: AtomicBool = AtomicBool::new(false);
+
+/// Silence library-side `eprintln!` warnings (used by the TUI so that stderr
+/// writes don't corrupt the alternate-screen display).
+pub fn set_quiet(v: bool) {
+    QUIET.store(v, Ordering::Relaxed);
+}
+
+pub(crate) fn is_quiet() -> bool {
+    QUIET.load(Ordering::Relaxed)
+}

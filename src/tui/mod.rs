@@ -61,6 +61,22 @@ pub(crate) struct DownloadState {
     pub total: Option<u64>,
 }
 
+const MAX_HISTORY: usize = 50;
+
+fn push_history(history: &mut Vec<String>, entry: &str) {
+    let entry = entry.trim();
+    if entry.is_empty() {
+        return;
+    }
+    if history.last().is_some_and(|last| last == entry) {
+        return;
+    }
+    history.push(entry.to_string());
+    if history.len() > MAX_HISTORY {
+        history.remove(0);
+    }
+}
+
 pub(crate) struct App {
     pub bible: Option<Bible>,
     pub installed: Vec<TranslationInfo>,
@@ -83,13 +99,25 @@ pub(crate) struct App {
 
     pub download: Option<DownloadState>,
     pub event_tx: Sender<AppEvent>,
+
+    /// Vim-style command history for the `:` jump bar.
+    /// Newest entry is last. `_idx` points at the entry currently shown in
+    /// the input; `None` means the user is composing a fresh entry.
+    pub jump_history: Vec<String>,
+    pub jump_history_idx: Option<usize>,
+    pub search_history: Vec<String>,
+    pub search_history_idx: Option<usize>,
 }
 
 pub fn run(initial_translation: Option<String>) -> Result<()> {
     install_panic_hook();
+    // Suppress library-side `eprintln!` so stderr writes don't scroll the
+    // alternate-screen TUI display and visually push the header off-screen.
+    crate::set_quiet(true);
     let mut terminal = setup_terminal()?;
     let result = run_app(&mut terminal, initial_translation);
     let _ = teardown_terminal();
+    crate::set_quiet(false);
     result
 }
 
@@ -183,6 +211,10 @@ impl App {
             manager_cursor: 0,
             download: None,
             event_tx,
+            jump_history: Vec::new(),
+            jump_history_idx: None,
+            search_history: Vec::new(),
+            search_history_idx: None,
         })
     }
 
@@ -339,14 +371,22 @@ impl App {
             KeyCode::Esc => {
                 self.mode = Mode::Normal;
                 self.input = Input::default();
+                self.jump_history_idx = None;
             }
             KeyCode::Enter => {
                 let q = self.input.value().to_string();
                 self.mode = Mode::Normal;
                 self.input = Input::default();
+                self.jump_history_idx = None;
+                push_history(&mut self.jump_history, &q);
                 self.jump_to(&q);
             }
+            KeyCode::Up => self.history_prev(true),
+            KeyCode::Down => self.history_next(true),
             _ => {
+                // typing into a recalled history entry breaks the browse cursor —
+                // treat the recalled value as the new fresh entry.
+                self.jump_history_idx = None;
                 let _ = self.input.handle_event(&Event::Key(k));
             }
         }
@@ -357,16 +397,56 @@ impl App {
             KeyCode::Esc => {
                 self.mode = Mode::Normal;
                 self.input = Input::default();
+                self.search_history_idx = None;
             }
             KeyCode::Enter => {
                 let q = self.input.value().to_string();
                 self.mode = Mode::Normal;
                 self.input = Input::default();
+                self.search_history_idx = None;
+                push_history(&mut self.search_history, &q);
                 self.run_search(&q);
             }
+            KeyCode::Up => self.history_prev(false),
+            KeyCode::Down => self.history_next(false),
             _ => {
+                self.search_history_idx = None;
                 let _ = self.input.handle_event(&Event::Key(k));
             }
+        }
+    }
+
+    fn history_prev(&mut self, jump: bool) {
+        let (history, idx) = if jump {
+            (&self.jump_history, &mut self.jump_history_idx)
+        } else {
+            (&self.search_history, &mut self.search_history_idx)
+        };
+        if history.is_empty() {
+            return;
+        }
+        let new_idx = match *idx {
+            None => history.len() - 1,
+            Some(0) => 0,
+            Some(i) => i - 1,
+        };
+        *idx = Some(new_idx);
+        self.input = Input::new(history[new_idx].clone());
+    }
+
+    fn history_next(&mut self, jump: bool) {
+        let (history, idx) = if jump {
+            (&self.jump_history, &mut self.jump_history_idx)
+        } else {
+            (&self.search_history, &mut self.search_history_idx)
+        };
+        let Some(cur) = *idx else { return };
+        if cur + 1 < history.len() {
+            *idx = Some(cur + 1);
+            self.input = Input::new(history[cur + 1].clone());
+        } else {
+            *idx = None;
+            self.input = Input::default();
         }
     }
 

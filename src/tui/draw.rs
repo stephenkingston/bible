@@ -207,18 +207,18 @@ fn draw_bottom_bar(f: &mut Frame, app: &App, area: Rect) {
     let line = match app.mode {
         Mode::Jump => Line::from(vec![
             Span::styled(":", Style::default().fg(Color::Cyan).bold()),
-            Span::raw(app.input.value().to_string()),
+            Span::raw(sanitize_one_line(app.input.value())),
             Span::styled("│", Style::default().fg(Color::Cyan)),
         ]),
         Mode::Search => Line::from(vec![
             Span::styled("/", Style::default().fg(Color::Magenta).bold()),
-            Span::raw(app.input.value().to_string()),
+            Span::raw(sanitize_one_line(app.input.value())),
             Span::styled("│", Style::default().fg(Color::Magenta)),
         ]),
         _ => {
             if !app.status.is_empty() {
                 Line::from(Span::styled(
-                    app.status.clone(),
+                    sanitize_one_line(&app.status),
                     Style::default().fg(Color::Indexed(244)),
                 ))
             } else {
@@ -229,7 +229,20 @@ fn draw_bottom_bar(f: &mut Frame, app: &App, area: Rect) {
             }
         }
     };
+    // Paragraph (no .wrap()) doesn't soft-wrap, but does honor explicit
+    // newlines as line breaks. We strip them above so the bar is always
+    // exactly one row regardless of error message contents.
     f.render_widget(Paragraph::new(line), area);
+}
+
+fn sanitize_one_line(s: &str) -> String {
+    s.chars()
+        .map(|c| match c {
+            '\n' | '\r' | '\t' => ' ',
+            c if c.is_control() => '·',
+            c => c,
+        })
+        .collect()
 }
 
 fn draw_manager(f: &mut Frame, app: &App, area: Rect) {
@@ -337,7 +350,8 @@ fn draw_help_overlay(f: &mut Frame, area: Rect) {
         Line::from(Span::styled("Lookup", Style::default().bold().fg(Color::Yellow))),
         Line::from("  :              jump to reference (e.g. :John 3:16)"),
         Line::from("  /              search current translation"),
-        Line::from("  n / N          next / previous match"),
+        Line::from("  ↑ / ↓          (in : or /) browse command history"),
+        Line::from("  n / N          next / previous search match"),
         Line::from(""),
         Line::from(Span::styled("Translations", Style::default().bold().fg(Color::Yellow))),
         Line::from("  T              translation manager"),

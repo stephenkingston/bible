@@ -124,7 +124,7 @@ pub fn parse_xml(xml: &str, id: &str) -> Result<Bible> {
         buf.clear();
     }
 
-    if skipped_count > 0 {
+    if skipped_count > 0 && !crate::is_quiet() {
         eprintln!(
             "bible: skipped {skipped_count} non-canonical book(s) in {id} (apocrypha not yet supported)"
         );
