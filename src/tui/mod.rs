@@ -7,6 +7,7 @@
 
 mod draw;
 mod nav;
+mod stderr_redirect;
 
 use std::io::{self, Stdout};
 use std::sync::mpsc::{self, Sender};
@@ -114,9 +115,13 @@ pub fn run(initial_translation: Option<String>) -> Result<()> {
     // Suppress library-side `eprintln!` so stderr writes don't scroll the
     // alternate-screen TUI display and visually push the header off-screen.
     crate::set_quiet(true);
+    // Also redirect stderr at the OS level: some deps (e.g. bibleref 0.4)
+    // call `dbg!()` from inside their parser, bypassing our quiet flag.
+    stderr_redirect::silence();
     let mut terminal = setup_terminal()?;
     let result = run_app(&mut terminal, initial_translation);
     let _ = teardown_terminal();
+    stderr_redirect::restore();
     crate::set_quiet(false);
     result
 }
@@ -140,8 +145,9 @@ fn install_panic_hook() {
     let original = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         if thread::current().id() == main_thread {
-            // Main-thread panic: restore the terminal so the trace is
-            // visible, then run the default printer.
+            // Main-thread panic: restore stderr and the terminal first so
+            // the trace is visible, then run the default printer.
+            stderr_redirect::restore();
             let _ = teardown_terminal();
             original(info);
         }

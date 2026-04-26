@@ -33,6 +33,9 @@ crossterm = "0.29"
 tui-input = "0.15"
 clap = { version = "4", features = ["derive"] }
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [[bin]]
 name = "bible"
 path = "src/bin/bible.rs"
