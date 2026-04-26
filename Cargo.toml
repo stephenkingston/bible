@@ -26,6 +26,7 @@ anyhow = "1"
 unicode-normalization = "0.1"
 unicode-width = "0.2"
 unicode-segmentation = "1"
+toml = "0.8"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 
 # TUI / CLI

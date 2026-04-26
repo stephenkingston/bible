@@ -23,6 +23,9 @@ pub enum Error {
     #[error("encode/decode: {0}")]
     Bincode(String),
 
+    #[error("toml: {0}")]
+    Toml(String),
+
     #[error("network: {0}")]
     Http(String),
 

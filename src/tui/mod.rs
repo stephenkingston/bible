@@ -198,6 +198,7 @@ fn run_app(terminal: &mut Tui, initial_translation: Option<String>) -> Result<()
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
     }
+    app.save_state();
     Ok(())
 }
 
@@ -263,12 +264,73 @@ impl App {
             self.set_status("No translations installed. Press `i` to install KJV, or `T` to browse.");
             return Ok(());
         }
+
+        let saved = crate::state::load();
+        let saved_position = saved
+            .as_ref()
+            .and_then(|s| s.last_position.as_ref())
+            .filter(|p| self.installed.iter().any(|t| t.id == p.translation));
+
+        // Resolution order:
+        //   1. Explicit `--translation <id>` argument.
+        //   2. Last position from saved state, if its translation is still installed.
+        //   3. First installed translation alphabetically.
         let id = if let Some(req) = requested {
-            manifest::resolve_id(&req).unwrap_or(self.installed[0].id.clone())
+            manifest::resolve_id(&req).unwrap_or_else(|_| self.installed[0].id.clone())
+        } else if let Some(p) = saved_position {
+            p.translation.clone()
         } else {
             self.installed[0].id.clone()
         };
-        self.load_translation(&id)
+
+        self.load_translation(&id)?;
+
+        // After the default Genesis 1 / scroll=0 from load_translation, restore
+        // the saved chapter and scroll if they belong to the translation we
+        // just loaded.
+        if let Some(p) = saved_position {
+            if p.translation == id {
+                if let Ok(book) = book_from_number(p.book_number) {
+                    if let Ok(chap_u8) = u8::try_from(p.chapter) {
+                        if let Ok(cr) = BibleChapterReference::new(book, chap_u8) {
+                            self.current = Some(cr);
+                            self.scroll = p.scroll;
+                            // load_translation set needs_clear; keep that.
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Persist current reading position (translation + chapter + scroll) to
+    /// `state.toml`. Called on quit and after every navigation that changes
+    /// the chapter. Best-effort: any error is silently swallowed because
+    /// state persistence must never block the user.
+    pub(crate) fn save_state(&self) {
+        let Some(bible) = self.bible.as_ref() else {
+            return;
+        };
+        let Some(cr) = self.current.as_ref() else {
+            return;
+        };
+        let chap_u32: u32 = cr.chapter().into();
+        let Ok(chapter) = u16::try_from(chap_u32) else {
+            return;
+        };
+        let state = crate::state::State {
+            schema_version: 1,
+            last_position: Some(crate::state::LastPosition {
+                translation: bible.translation.id.clone(),
+                book_number: cr.book().number(),
+                chapter,
+                scroll: self.scroll,
+            }),
+            parallel: None,
+        };
+        let _ = crate::state::save(&state);
     }
 
     pub(crate) fn load_translation(&mut self, id: &str) -> Result<()> {
@@ -625,7 +687,10 @@ impl App {
         let next = (((pos as i32 + dir) % n) + n) % n;
         let id = self.installed[next as usize].id.clone();
         match self.load_translation(&id) {
-            Ok(()) => self.set_status(format!("switched to {id}")),
+            Ok(()) => {
+                self.set_status(format!("switched to {id}"));
+                self.save_state();
+            }
             Err(e) => self.set_status(format!("load failed: {e}")),
         }
     }
@@ -696,6 +761,7 @@ impl App {
         if q.is_empty() {
             return;
         }
+        let mut moved = false;
         match crate::reference::parse(q) {
             Err(e) => self.set_status(format!("parse: {e}")),
             Ok(BibleReferenceRepresentation::Single(BibleReference::BibleVerse(vr))) => {
@@ -708,21 +774,27 @@ impl App {
                 }) {
                     self.current = Some(cr);
                     self.scroll = nav::verse_scroll(&vr);
+                    moved = true;
                 }
             }
             Ok(BibleReferenceRepresentation::Single(BibleReference::BibleChapter(cr))) => {
                 self.current = Some(cr);
                 self.scroll = 0;
+                moved = true;
             }
             Ok(BibleReferenceRepresentation::Single(BibleReference::BibleBook(_))) => {
                 if let Ok(cr) = nav::first_chapter_of_parsed(q) {
                     self.current = Some(cr);
                     self.scroll = 0;
+                    moved = true;
                 }
             }
             Ok(BibleReferenceRepresentation::Range(_)) => {
                 self.set_status("ranges aren't supported in v1 — try a single verse")
             }
+        }
+        if moved {
+            self.save_state();
         }
     }
 
@@ -790,6 +862,7 @@ impl App {
         if let Ok(cr) = BibleChapterReference::new(vr.book(), chap) {
             self.current = Some(cr);
             self.scroll = nav::verse_scroll(&vr);
+            self.save_state();
         }
     }
 
@@ -800,6 +873,7 @@ impl App {
         if let Some(next) = nav::shift_chapter(cur, dir) {
             self.current = Some(next);
             self.scroll = 0;
+            self.save_state();
         }
     }
 
@@ -810,6 +884,7 @@ impl App {
         if let Some(next) = nav::shift_book(cur, dir) {
             self.current = Some(next);
             self.scroll = 0;
+            self.save_state();
         }
     }
 }
