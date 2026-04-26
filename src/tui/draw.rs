@@ -7,7 +7,7 @@ use ratatui::widgets::{Block, Borders, Clear, Gauge, List, ListItem, Paragraph, 
 use crate::reference::book_display;
 use crate::storage;
 
-use super::{App, Mode};
+use super::{App, Mode, SPINNER_FRAMES};
 
 pub fn draw(f: &mut Frame, app: &App) {
     let area = f.area();
@@ -207,6 +207,32 @@ fn highlighted_verse_for(
 }
 
 fn draw_bottom_bar(f: &mut Frame, app: &App, area: Rect) {
+    // Active search overrides the normal status display so the spinner is
+    // always visible while a worker is scanning.
+    if let Some(s) = app.searching.as_ref() {
+        let frame = SPINNER_FRAMES[s.spinner % SPINNER_FRAMES.len()];
+        let elapsed = s.started_at.elapsed().as_millis();
+        let line = Line::from(vec![
+            Span::raw(" "),
+            Span::styled(
+                frame.to_string(),
+                Style::default().fg(Color::Yellow).bold(),
+            ),
+            Span::raw(" searching for "),
+            Span::styled(
+                format!("`{}`", sanitize_one_line(&s.query)),
+                Style::default().fg(Color::Magenta).bold(),
+            ),
+            Span::raw("  "),
+            Span::styled(
+                format!("({}.{:03}s)", elapsed / 1000, elapsed % 1000),
+                Style::default().add_modifier(Modifier::DIM),
+            ),
+        ]);
+        f.render_widget(line, area);
+        return;
+    }
+
     let line = match app.mode {
         Mode::Jump => Line::from(vec![
             Span::styled(":", Style::default().fg(Color::Cyan).bold()),

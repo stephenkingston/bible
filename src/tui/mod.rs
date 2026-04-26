@@ -10,6 +10,7 @@ mod nav;
 mod stderr_redirect;
 
 use std::io::{self, Stdout};
+use std::sync::Arc;
 use std::sync::mpsc::{self, Sender};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -43,6 +44,15 @@ pub(crate) enum AppEvent {
     Tick,
     DownloadProgress { id: String, bytes: u64, total: Option<u64> },
     DownloadDone { id: String, result: std::result::Result<TranslationInfo, String> },
+    SearchDone { query: String, hits: Vec<BibleVerseReference> },
+}
+
+pub(crate) const SPINNER_FRAMES: &[&str] = &["|", "/", "-", "\\"];
+
+pub(crate) struct SearchingState {
+    pub query: String,
+    pub spinner: usize,
+    pub started_at: Instant,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,7 +89,9 @@ fn push_history(history: &mut Vec<String>, entry: &str) {
 }
 
 pub(crate) struct App {
-    pub bible: Option<Bible>,
+    /// Wrapped in `Arc` so a search worker thread can hold a cheap clone
+    /// without copying the Bible's ~4MB of text.
+    pub bible: Option<Arc<Bible>>,
     pub installed: Vec<TranslationInfo>,
     pub available: Vec<AvailableTranslation>,
     pub current: Option<BibleChapterReference>,
@@ -92,6 +104,7 @@ pub(crate) struct App {
     pub search_hits: Vec<BibleVerseReference>,
     pub search_idx: usize,
     pub last_search: String,
+    pub searching: Option<SearchingState>,
 
     pub pending_g: bool,
 
@@ -167,9 +180,11 @@ fn run_app(terminal: &mut Tui, initial_translation: Option<String>) -> Result<()
 
     while app.mode != Mode::Quit {
         terminal.draw(|f| draw::draw(f, &app))?;
-        match rx.recv_timeout(Duration::from_millis(250)) {
+        // 100ms timeout drives the search spinner animation; idle CPU cost
+        // of waking the loop 10×/sec is negligible.
+        match rx.recv_timeout(Duration::from_millis(100)) {
             Ok(ev) => app.handle_event(ev)?,
-            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Timeout) => app.on_idle(),
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
     }
@@ -195,12 +210,10 @@ fn spawn_input_thread(tx: Sender<AppEvent>) {
     });
 }
 
-fn spawn_tick_thread(tx: Sender<AppEvent>) {
-    thread::spawn(move || {
-        while tx.send(AppEvent::Tick).is_ok() {
-            thread::sleep(Duration::from_millis(500));
-        }
-    });
+fn spawn_tick_thread(_tx: Sender<AppEvent>) {
+    // Animation is driven by the recv_timeout in run_app via App::on_idle —
+    // no separate ticker thread needed. Kept as a stub so the call in
+    // run_app stays put for future use.
 }
 
 impl App {
@@ -220,6 +233,7 @@ impl App {
             search_hits: Vec::new(),
             search_idx: 0,
             last_search: String::new(),
+            searching: None,
             pending_g: false,
             manager_filter: Input::default(),
             manager_cursor: 0,
@@ -254,9 +268,13 @@ impl App {
             .and_then(|b| book_from_number(b.book_number).ok())
             .unwrap_or_else(|| get_bible_book_by_number(1).expect("Genesis"));
         self.current = BibleChapterReference::new(first_book, 1).ok();
-        self.bible = Some(bible);
+        self.bible = Some(Arc::new(bible));
         self.scroll = 0;
         self.mode = Mode::Normal;
+        // Switching translations invalidates any in-flight search results
+        // (different verse text → different hits).
+        self.search_hits.clear();
+        self.searching = None;
         Ok(())
     }
 
@@ -265,12 +283,40 @@ impl App {
         self.status_at = Instant::now();
     }
 
+    pub(crate) fn on_idle(&mut self) {
+        if let Some(s) = self.searching.as_mut() {
+            s.spinner = (s.spinner + 1) % SPINNER_FRAMES.len();
+        }
+        if !self.status.is_empty() && self.status_at.elapsed() > Duration::from_secs(5) {
+            self.status.clear();
+        }
+    }
+
     fn handle_event(&mut self, ev: AppEvent) -> Result<()> {
         match ev {
             AppEvent::Key(k) => self.handle_key(k)?,
-            AppEvent::Tick => {
-                if !self.status.is_empty() && self.status_at.elapsed() > Duration::from_secs(5) {
-                    self.status.clear();
+            AppEvent::Tick => self.on_idle(),
+            AppEvent::SearchDone { query, hits } => {
+                // A second search may have started before this one came back.
+                // Only apply if the result still matches the active query.
+                let still_active = self
+                    .searching
+                    .as_ref()
+                    .is_some_and(|s| s.query == query);
+                if !still_active {
+                    return Ok(());
+                }
+                self.searching = None;
+                if hits.is_empty() {
+                    self.search_hits.clear();
+                    self.set_status(format!("no matches for `{query}`"));
+                } else {
+                    let n = hits.len();
+                    self.search_hits = hits;
+                    self.search_idx = 0;
+                    self.last_search = query.clone();
+                    self.set_status(format!("{n} hits for `{query}`"));
+                    self.go_to_current_hit();
                 }
             }
             AppEvent::DownloadProgress { id, bytes, total } => {
@@ -670,21 +716,37 @@ impl App {
         let Some(bible) = self.bible.as_ref() else {
             return;
         };
-        let q = q.trim();
+        let q = q.trim().to_string();
         if q.is_empty() {
             return;
         }
-        let hits = bible.search_substring(q);
-        if hits.is_empty() {
-            self.set_status(format!("no matches for `{q}`"));
-            self.search_hits.clear();
-            return;
-        }
-        self.search_hits = hits.into_iter().map(|h| h.reference).collect();
-        self.search_idx = 0;
-        self.last_search = q.to_string();
-        self.set_status(format!("{} hits for `{q}`", self.search_hits.len()));
-        self.go_to_current_hit();
+        // Off-load the actual scan to a worker thread. With ~31k verses and
+        // NFKD normalisation the main loop would otherwise stall for
+        // hundreds of ms, freezing input and the spinner.
+        let bible = Arc::clone(bible);
+        let tx = self.event_tx.clone();
+        let query_for_thread = q.clone();
+        self.searching = Some(SearchingState {
+            query: q.clone(),
+            spinner: 0,
+            started_at: Instant::now(),
+        });
+        self.status.clear();
+        self.search_hits.clear();
+        thread::spawn(move || {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                bible
+                    .search_substring(&query_for_thread)
+                    .into_iter()
+                    .map(|h| h.reference)
+                    .collect::<Vec<_>>()
+            }));
+            let hits = result.unwrap_or_default();
+            let _ = tx.send(AppEvent::SearchDone {
+                query: query_for_thread,
+                hits,
+            });
+        });
     }
 
     fn advance_search_hit(&mut self, dir: i32) {
