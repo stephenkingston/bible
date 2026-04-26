@@ -20,6 +20,7 @@
 //! ```
 
 pub mod bible;
+pub mod bookmarks;
 pub mod cli;
 pub mod download;
 pub mod error;

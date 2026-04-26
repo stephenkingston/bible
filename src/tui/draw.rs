@@ -26,6 +26,7 @@ pub fn draw(f: &mut Frame, app: &App) {
 
     match app.mode {
         Mode::Manager => draw_manager(f, app, area),
+        Mode::Bookmarks => draw_bookmarks(f, app, area),
         _ => draw_reader(f, app, area),
     }
 
@@ -640,6 +641,96 @@ fn draw_manager(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(Paragraph::new(hint), rows[2]);
 }
 
+fn draw_bookmarks(f: &mut Frame, app: &App, area: Rect) {
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Yellow))
+        .title(Line::from(vec![
+            Span::raw(" "),
+            Span::styled("Bookmarks", Style::default().fg(Color::Yellow).bold()),
+            Span::raw(" "),
+            Span::styled(
+                format!("({})", app.bookmarks.len()),
+                Style::default().add_modifier(Modifier::DIM),
+            ),
+            Span::raw(" "),
+        ]));
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(0), Constraint::Length(1)])
+        .split(inner);
+
+    if app.bookmarks.is_empty() {
+        let empty = Line::from(vec![
+            Span::raw("  "),
+            Span::styled(
+                "No bookmarks yet — press ",
+                Style::default().add_modifier(Modifier::DIM),
+            ),
+            Span::styled("b", Style::default().fg(Color::Yellow).bold()),
+            Span::styled(
+                " on a chapter, or ",
+                Style::default().add_modifier(Modifier::DIM),
+            ),
+            Span::styled(":b 16 my note", Style::default().fg(Color::Cyan).bold()),
+            Span::styled(
+                " to add one.",
+                Style::default().add_modifier(Modifier::DIM),
+            ),
+        ]);
+        f.render_widget(empty, rows[0]);
+    } else {
+        let items: Vec<ListItem> = app
+            .bookmarks
+            .iter()
+            .enumerate()
+            .map(|(i, bm)| {
+                let book_label = crate::reference::book_from_number(bm.book_number)
+                    .ok()
+                    .map(|b| crate::reference::book_display(&b))
+                    .unwrap_or("?");
+                let ref_str = match bm.verse {
+                    Some(v) => format!("{} {}:{}", book_label, bm.chapter, v),
+                    None => format!("{} {}", book_label, bm.chapter),
+                };
+                let row_style = if i == app.bookmarks_cursor {
+                    Style::default().bg(Color::Indexed(236))
+                } else {
+                    Style::default()
+                };
+                let mut spans = vec![
+                    Span::raw(" ★ "),
+                    Span::styled(
+                        format!("{:24}", bm.translation),
+                        Style::default().fg(Color::Cyan),
+                    ),
+                    Span::raw(" · "),
+                    Span::styled(ref_str, Style::default().fg(Color::Yellow).bold()),
+                ];
+                if !bm.note.is_empty() {
+                    spans.push(Span::raw(" · "));
+                    spans.push(Span::styled(
+                        format!("\"{}\"", bm.note),
+                        Style::default(),
+                    ));
+                }
+                ListItem::new(Line::from(spans)).style(row_style)
+            })
+            .collect();
+        let list = List::new(items);
+        f.render_widget(list, rows[0]);
+    }
+
+    let hint = Line::from(Span::styled(
+        " Enter jump  d delete  jk move  Esc back ",
+        Style::default().add_modifier(Modifier::DIM),
+    ));
+    f.render_widget(Paragraph::new(hint), rows[1]);
+}
+
 fn draw_help_overlay(f: &mut Frame, area: Rect) {
     let popup = centered_rect(60, 60, area);
     f.render_widget(Clear, popup);
@@ -663,6 +754,11 @@ fn draw_help_overlay(f: &mut Frame, area: Rect) {
         Line::from("  /              search current translation"),
         Line::from("  ↑ / ↓          (in : or /) browse command history"),
         Line::from("  n / N          next / previous search match"),
+        Line::from(""),
+        Line::from(Span::styled("Bookmarks", Style::default().bold().fg(Color::Yellow))),
+        Line::from("  b              bookmark current chapter"),
+        Line::from("  :b N <note>    bookmark verse N with optional note"),
+        Line::from("  B              open bookmarks list  (Enter jump, d delete)"),
         Line::from(""),
         Line::from(Span::styled("Translations", Style::default().bold().fg(Color::Yellow))),
         Line::from("  T              translation manager"),

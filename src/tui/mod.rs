@@ -61,6 +61,7 @@ pub(crate) enum Mode {
     Jump,
     Search,
     Manager,
+    Bookmarks,
     Help,
     NoTranslation,
     Quit,
@@ -110,6 +111,9 @@ pub(crate) struct App {
 
     pub manager_filter: Input,
     pub manager_cursor: usize,
+
+    pub bookmarks: Vec<crate::bookmarks::Bookmark>,
+    pub bookmarks_cursor: usize,
 
     pub download: Option<DownloadState>,
     pub event_tx: Sender<AppEvent>,
@@ -248,6 +252,8 @@ impl App {
             pending_g: false,
             manager_filter: Input::default(),
             manager_cursor: 0,
+            bookmarks: crate::bookmarks::load(),
+            bookmarks_cursor: 0,
             download: None,
             event_tx,
             needs_clear: false,
@@ -438,6 +444,7 @@ impl App {
                 _ => {}
             },
             Mode::NoTranslation => self.handle_no_translation(k),
+            Mode::Bookmarks => self.handle_bookmarks(k),
             Mode::Quit => {}
         }
         Ok(())
@@ -484,6 +491,8 @@ impl App {
             KeyCode::Char('G') => self.scroll = u16::MAX / 2,
             KeyCode::Char('n') if modless => self.advance_search_hit(1),
             KeyCode::Char('N') => self.advance_search_hit(-1),
+            KeyCode::Char('b') if modless => self.bookmark_current_chapter(),
+            KeyCode::Char('B') => self.open_bookmarks(),
             _ => {}
         }
         if !matches!(k.code, KeyCode::Char('g')) {
@@ -515,7 +524,14 @@ impl App {
                 self.input = Input::default();
                 self.jump_history_idx = None;
                 push_history(&mut self.jump_history, &q);
-                self.jump_to(&q);
+                let trimmed = q.trim();
+                if trimmed == "b" {
+                    self.bookmark_current_chapter();
+                } else if let Some(rest) = trimmed.strip_prefix("b ") {
+                    self.handle_bookmark_command(rest.trim());
+                } else {
+                    self.jump_to(&q);
+                }
             }
             KeyCode::Up => self.history_prev(true),
             KeyCode::Down => self.history_next(true),
@@ -692,6 +708,146 @@ impl App {
                 self.save_state();
             }
             Err(e) => self.set_status(format!("load failed: {e}")),
+        }
+    }
+
+    fn bookmark_current_chapter(&mut self) {
+        self.add_bookmark(None, "");
+    }
+
+    fn handle_bookmark_command(&mut self, args: &str) {
+        if args.is_empty() {
+            self.bookmark_current_chapter();
+            return;
+        }
+        // First token: try to parse as a verse number. If so, the rest is the
+        // optional note. Otherwise the entire argument is the note for a
+        // chapter-level bookmark.
+        let mut parts = args.splitn(2, char::is_whitespace);
+        let first = parts.next().unwrap_or("");
+        if let Ok(v) = first.parse::<u16>() {
+            let note = parts.next().unwrap_or("").trim();
+            self.add_bookmark(Some(v), note);
+        } else {
+            self.add_bookmark(None, args);
+        }
+    }
+
+    fn add_bookmark(&mut self, verse: Option<u16>, note: &str) {
+        let Some(bible) = self.bible.as_ref() else {
+            self.set_status("no translation loaded");
+            return;
+        };
+        let Some(cr) = self.current.as_ref() else {
+            return;
+        };
+        let chap_u32: u32 = cr.chapter().into();
+        let Ok(chapter) = u16::try_from(chap_u32) else {
+            return;
+        };
+        let book = cr.book();
+        let label = match verse {
+            Some(v) => format!("{} {}:{}", crate::reference::book_display(&book), chapter, v),
+            None => format!("{} {}", crate::reference::book_display(&book), chapter),
+        };
+        let bm = crate::bookmarks::Bookmark {
+            translation: bible.translation.id.clone(),
+            book_number: book.number(),
+            chapter,
+            verse,
+            note: note.to_string(),
+            created_at: chrono::Utc::now().to_rfc3339(),
+        };
+        self.bookmarks.push(bm);
+        match crate::bookmarks::save(&self.bookmarks) {
+            Ok(()) => self.set_status(format!("bookmarked: {label}")),
+            Err(e) => self.set_status(format!("bookmark save failed: {e}")),
+        }
+    }
+
+    fn open_bookmarks(&mut self) {
+        self.bookmarks_cursor = 0;
+        self.mode = Mode::Bookmarks;
+    }
+
+    fn handle_bookmarks(&mut self, k: KeyEvent) {
+        match k.code {
+            KeyCode::Esc | KeyCode::Char('q') => self.mode = Mode::Normal,
+            KeyCode::Down | KeyCode::Char('j') => {
+                if !self.bookmarks.is_empty() {
+                    let last = self.bookmarks.len() - 1;
+                    self.bookmarks_cursor = (self.bookmarks_cursor + 1).min(last);
+                }
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.bookmarks_cursor = self.bookmarks_cursor.saturating_sub(1);
+            }
+            KeyCode::Enter => self.jump_to_bookmark(),
+            KeyCode::Char('d') => self.delete_bookmark(),
+            _ => {}
+        }
+    }
+
+    fn jump_to_bookmark(&mut self) {
+        let Some(bm) = self.bookmarks.get(self.bookmarks_cursor).cloned() else {
+            return;
+        };
+        // Switch translation if needed.
+        let already_loaded = self
+            .bible
+            .as_ref()
+            .map(|b| b.translation.id == bm.translation)
+            .unwrap_or(false);
+        if !already_loaded {
+            if !crate::storage::is_installed(&bm.translation) {
+                self.set_status(format!(
+                    "translation `{}` is no longer installed",
+                    bm.translation
+                ));
+                return;
+            }
+            if let Err(e) = self.load_translation(&bm.translation) {
+                self.set_status(format!("load failed: {e}"));
+                return;
+            }
+        }
+        let Ok(book) = book_from_number(bm.book_number) else {
+            self.set_status("invalid bookmark");
+            return;
+        };
+        let Ok(chap_u8) = u8::try_from(bm.chapter) else {
+            self.set_status("invalid bookmark");
+            return;
+        };
+        let Ok(cr) = BibleChapterReference::new(book.clone(), chap_u8) else {
+            self.set_status("invalid bookmark");
+            return;
+        };
+        self.current = Some(cr);
+        if let Some(v) = bm.verse {
+            if let Ok(vu8) = u8::try_from(v) {
+                if let Ok(vr) = BibleVerseReference::new(book, chap_u8, vu8) {
+                    self.scroll = nav::verse_scroll(&vr);
+                }
+            }
+        } else {
+            self.scroll = 0;
+        }
+        self.mode = Mode::Normal;
+        self.save_state();
+    }
+
+    fn delete_bookmark(&mut self) {
+        if self.bookmarks_cursor >= self.bookmarks.len() {
+            return;
+        }
+        self.bookmarks.remove(self.bookmarks_cursor);
+        if self.bookmarks_cursor >= self.bookmarks.len() && self.bookmarks_cursor > 0 {
+            self.bookmarks_cursor -= 1;
+        }
+        match crate::bookmarks::save(&self.bookmarks) {
+            Ok(()) => self.set_status("bookmark removed"),
+            Err(e) => self.set_status(format!("bookmark save failed: {e}")),
         }
     }
 
