@@ -1,8 +1,9 @@
 use ratatui::Frame;
+use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Gauge, List, ListItem, Paragraph, Wrap};
+use ratatui::widgets::{Block, Borders, Clear, Gauge, List, ListItem, Paragraph, Widget, Wrap};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::reference::book_display;
@@ -165,11 +166,23 @@ fn draw_chapter(f: &mut Frame, app: &App, area: Rect) {
     let chapter = match bible.get_chapter(cr) {
         Some(c) => c,
         None => {
-            let line = Line::from(Span::styled(
-                pad_line("(chapter not present in this translation)", inner.width as usize),
-                Style::default().add_modifier(Modifier::DIM),
-            ));
-            f.render_widget(line, inner);
+            for row_idx in 0..inner.height {
+                let row_area = Rect::new(inner.x, inner.y + row_idx, inner.width, 1);
+                let (prefix, content) = if row_idx == 0 {
+                    ("", "(chapter not present in this translation)")
+                } else {
+                    ("", "")
+                };
+                f.render_widget(
+                    ChapterRow {
+                        prefix,
+                        prefix_style: Style::default(),
+                        content,
+                        content_style: Style::default().add_modifier(Modifier::DIM),
+                    },
+                    row_area,
+                );
+            }
             return;
         }
     };
@@ -223,24 +236,90 @@ fn draw_chapter(f: &mut Frame, app: &App, area: Rect) {
         } else {
             Style::default()
         };
-        let prefix_actual_w = UnicodeWidthStr::width(row.prefix.as_str());
-        let content_target = (inner.width as usize).saturating_sub(prefix_actual_w);
-        let content_padded = pad_line(&row.content, content_target);
-        let line = Line::from(vec![
-            Span::styled(row.prefix.clone(), num_style),
-            Span::styled(content_padded, text_style),
-        ]);
-        f.render_widget(line, row_area);
+        f.render_widget(
+            ChapterRow {
+                prefix: &row.prefix,
+                prefix_style: num_style,
+                content: &row.content,
+                content_style: text_style,
+            },
+            row_area,
+        );
     }
 
-    // Pad any unused trailing rows (when the chapter is shorter than the
-    // viewport) with explicit blanks so previous-frame content can't show.
+    // Blank any unused trailing rows when the chapter is shorter than the
+    // viewport so a longer previous chapter can't bleed through.
     let rendered = rows.len().saturating_sub(start).min(visible);
     for row_idx in rendered..visible {
         let row_area = Rect::new(inner.x, inner.y + row_idx as u16, inner.width, 1);
-        let line = Line::from(Span::raw(pad_line("", inner.width as usize)));
-        f.render_widget(line, row_area);
+        f.render_widget(
+            ChapterRow {
+                prefix: "",
+                prefix_style: Style::default(),
+                content: "",
+                content_style: Style::default(),
+            },
+            row_area,
+        );
     }
+}
+
+/// Custom row renderer for the chapter content. Bypasses Line/Paragraph and
+/// goes straight to `Buffer::cell_mut` so we can:
+///
+/// 1. Hard-reset every cell in the row, *including* unsetting the `skip`
+///    flag. ratatui's `Cell::reset()` clears the symbol/style but leaves
+///    `skip` untouched. Wide-char graphemes from a prior frame leave
+///    `skip = true` on the trailing cell, and the diff renderer literally
+///    skips those cells — so a stale glyph survives every subsequent
+///    redraw, no matter how many times we write a space over it.
+/// 2. Then write the prefix and (truncated-to-fit) content into the now-
+///    pristine row.
+///
+/// Untouched cells past the content stay as the explicit space we wrote in
+/// step 1, so trailing artifacts can't survive.
+struct ChapterRow<'a> {
+    prefix: &'a str,
+    prefix_style: Style,
+    content: &'a str,
+    content_style: Style,
+}
+
+impl Widget for ChapterRow<'_> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        if area.height == 0 || area.width == 0 {
+            return;
+        }
+        let y = area.y;
+        for x in area.left()..area.right() {
+            if let Some(cell) = buf.cell_mut((x, y)) {
+                cell.reset();
+                cell.set_symbol(" ");
+                cell.set_skip(false);
+            }
+        }
+        buf.set_string(area.x, y, self.prefix, self.prefix_style);
+        let prefix_w = UnicodeWidthStr::width(self.prefix) as u16;
+        if prefix_w < area.width && !self.content.is_empty() {
+            let remaining = (area.width - prefix_w) as usize;
+            let truncated = truncate_to_width(self.content, remaining);
+            buf.set_string(area.x + prefix_w, y, &truncated, self.content_style);
+        }
+    }
+}
+
+fn truncate_to_width(s: &str, max_width: usize) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut w = 0usize;
+    for ch in s.chars() {
+        let cw = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if w + cw > max_width {
+            break;
+        }
+        out.push(ch);
+        w += cw;
+    }
+    out
 }
 
 struct Row {
@@ -257,22 +336,6 @@ impl Row {
             content: String::new(),
         }
     }
-}
-
-/// Pad `s` with spaces so its display width is exactly `target` columns.
-/// If already at or past `target`, returns `s` unchanged. Display width
-/// uses `unicode-width` so wide CJK/Tamil glyphs are accounted for.
-fn pad_line(s: &str, target: usize) -> String {
-    let cur = UnicodeWidthStr::width(s);
-    if cur >= target {
-        return s.to_string();
-    }
-    let mut out = String::with_capacity(s.len() + (target - cur));
-    out.push_str(s);
-    for _ in 0..(target - cur) {
-        out.push(' ');
-    }
-    out
 }
 
 /// Word-wrap `text` to lines whose display width does not exceed `max_width`.
