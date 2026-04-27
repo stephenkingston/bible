@@ -3,7 +3,9 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Gauge, List, ListItem, Paragraph, Widget, Wrap};
+use ratatui::widgets::{
+    Block, Borders, Clear, Gauge, List, ListItem, Padding, Paragraph, Widget, Wrap,
+};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
@@ -267,6 +269,7 @@ fn draw_chapter_pane(
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(border_color))
+        .padding(Padding::horizontal(1))
         .title(Line::from(title_spans));
     let inner = block.inner(area);
     f.render_widget(block, area);
@@ -757,7 +760,51 @@ fn wrap_to_width(text: &str, max_width: usize, settings: &Settings) -> Vec<Strin
     if lines.is_empty() {
         lines.push(String::new());
     }
+    if settings.typography.justify && lines.len() > 1 {
+        let last = lines.len() - 1;
+        for line in lines.iter_mut().take(last) {
+            *line = justify_line(line, max_width, settings);
+        }
+    }
     lines
+}
+
+/// Re-distribute spaces between words so the line spans `target` columns.
+/// Returns the line unchanged when justification doesn't apply: lines with
+/// fewer than two whitespace-separated tokens (single word, blank, or a
+/// grapheme-broken super-long word), or lines whose words already meet/
+/// exceed the target.
+fn justify_line(line: &str, target: usize, settings: &Settings) -> String {
+    let words: Vec<&str> = line.split_whitespace().collect();
+    if words.len() < 2 {
+        return line.to_string();
+    }
+    let total_word_w: usize = words
+        .iter()
+        .map(|w| {
+            UnicodeSegmentation::graphemes(*w, true)
+                .map(|g| display_width(g, settings))
+                .sum::<usize>()
+        })
+        .sum();
+    if total_word_w >= target {
+        return line.to_string();
+    }
+    let n_gaps = words.len() - 1;
+    let total_gap = target - total_word_w;
+    let base = total_gap / n_gaps;
+    let extra = total_gap % n_gaps;
+    let mut out = String::new();
+    for (j, word) in words.iter().enumerate() {
+        if j > 0 {
+            // Front-load the leftover columns onto the first `extra` gaps —
+            // standard justification convention.
+            let gap_w = base + if j <= extra { 1 } else { 0 };
+            out.push_str(&" ".repeat(gap_w));
+        }
+        out.push_str(word);
+    }
+    out
 }
 
 fn highlighted_verse_for(
@@ -1377,6 +1424,7 @@ enum SettingsRow {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum SettingItem {
+    JustifyText,
     WordPadding,
     VerseSpacing,
     LineSpacing,
@@ -1396,6 +1444,7 @@ pub(super) enum SettingItem {
 const fn settings_layout() -> &'static [SettingsRow] {
     &[
         SettingsRow::Header("Typography"),
+        SettingsRow::Item(SettingItem::JustifyText),
         SettingsRow::Item(SettingItem::WordPadding),
         SettingsRow::Item(SettingItem::VerseSpacing),
         SettingsRow::Item(SettingItem::LineSpacing),
@@ -1418,6 +1467,7 @@ const fn settings_layout() -> &'static [SettingsRow] {
 }
 
 pub(super) const SETTINGS_ITEMS: &[SettingItem] = &[
+    SettingItem::JustifyText,
     SettingItem::WordPadding,
     SettingItem::VerseSpacing,
     SettingItem::LineSpacing,
@@ -1437,6 +1487,7 @@ pub(super) const SETTINGS_ITEMS: &[SettingItem] = &[
 impl SettingItem {
     fn label(&self) -> &'static str {
         match self {
+            SettingItem::JustifyText => "Justify text",
             SettingItem::WordPadding => "Word padding",
             SettingItem::VerseSpacing => "Verse spacing",
             SettingItem::LineSpacing => "Line spacing",
@@ -1456,6 +1507,9 @@ impl SettingItem {
 
     fn value(&self, s: &Settings) -> String {
         match self {
+            SettingItem::JustifyText => {
+                if s.typography.justify { "on".to_string() } else { "off".to_string() }
+            }
             SettingItem::WordPadding => format!("+{}", s.typography.word_padding),
             SettingItem::VerseSpacing => format!("{} line(s)", s.typography.verse_spacing),
             SettingItem::LineSpacing => format!("{} line(s)", s.typography.line_spacing),
@@ -1521,6 +1575,10 @@ impl SettingItem {
         {
         let s = &mut app.settings;
         match self {
+            SettingItem::JustifyText => {
+                // Bool toggle — direction doesn't matter, h/l/Enter all flip.
+                s.typography.justify = !s.typography.justify;
+            }
             SettingItem::WordPadding => {
                 s.typography.word_padding = clamp_u8(s.typography.word_padding, dir, 0, 3);
             }

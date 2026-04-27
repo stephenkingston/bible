@@ -36,18 +36,41 @@ impl Default for Settings {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Typography {
     #[serde(default)]
     pub script_letter_padding: ScriptPadding,
     #[serde(default)]
     pub word_padding: u8,
-    #[serde(default)]
+    #[serde(default = "default_verse_spacing")]
     pub verse_spacing: u8,
     #[serde(default)]
     pub line_spacing: u8,
     #[serde(default)]
     pub verse_number_style: VerseNumberStyle,
+    #[serde(default = "default_true")]
+    pub justify: bool,
+}
+
+impl Default for Typography {
+    fn default() -> Self {
+        Self {
+            script_letter_padding: ScriptPadding::default(),
+            word_padding: 0,
+            verse_spacing: default_verse_spacing(),
+            line_spacing: 0,
+            verse_number_style: VerseNumberStyle::default(),
+            justify: default_true(),
+        }
+    }
+}
+
+fn default_verse_spacing() -> u8 {
+    1
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

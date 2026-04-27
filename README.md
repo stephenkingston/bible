@@ -91,8 +91,9 @@ adjust settings on the right.
 
 What's tunable:
 
-- **Typography** — word padding, verse spacing, line spacing, verse-number
-  style (`inline-bold` / `superscript` / `hidden`).
+- **Typography** — justify text (on by default), word padding, verse
+  spacing, line spacing, verse-number style (`inline-bold` /
+  `superscript` / `hidden`).
 - **Letter padding (per script)** — extra cells around each grapheme for
   Tamil, Devanagari, Arabic, Hebrew, CJK, plus a `default` for any other
   non-Latin script. Workaround for terminal fonts that overlap glyphs.
