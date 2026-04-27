@@ -30,24 +30,28 @@ bible install kjv
 
 ### Keybindings (Reader)
 
-| Key            | Action                                                            |
-| -------------- | ----------------------------------------------------------------- |
-| `j` / `k`      | scroll one line (in parallel view: advance verse anchor)          |
-| `Ctrl-d/u`     | half-page scroll                                                  |
-| `gg` / `G`     | top / bottom of chapter                                           |
-| `h` / `l`      | previous / next chapter                                           |
-| `H` / `L`      | previous / next book                                              |
-| `:`            | jump to a reference (e.g. `:John 3:16`)                           |
-| `/`, `n`, `N`  | search, next, previous match                                      |
-| `t`            | cycle installed translations                                      |
-| `T`            | open Translation Manager                                          |
-| `b`            | bookmark current chapter (no prompt)                              |
-| `B`            | open the bookmarks list                                           |
-| `\|`           | toggle parallel view (opens chooser if no secondary picked)       |
-| `\`            | re-open the secondary-translation chooser to swap                 |
-| `,`            | open Settings (typography, theme, width cap, parallel divider)    |
-| `?`            | help overlay                                                      |
-| `q`            | quit                                                              |
+| Key                  | Action                                                            |
+| -------------------- | ----------------------------------------------------------------- |
+| `↑` / `↓`            | scroll one line (in parallel view: change verse anchor)           |
+| `←` / `→`            | previous / next chapter                                           |
+| `Shift+←` / `Shift+→`| previous / next book                                              |
+| `PgUp` / `PgDn`      | half-page scroll                                                  |
+| `Home` / `End`       | top / bottom of chapter                                           |
+| `:`                  | jump to a reference (e.g. `:John 3:16`)                           |
+| `/`, `n`, `N`        | search, next, previous match                                      |
+| `t`                  | cycle installed translations                                      |
+| `T`                  | open Translation Manager                                          |
+| `b`                  | bookmark current chapter (no prompt)                              |
+| `B`                  | open the bookmarks list                                           |
+| `\|`                 | toggle parallel view (opens chooser if no secondary picked)       |
+| `\`                  | re-open the secondary-translation chooser to swap                 |
+| `,`                  | open Settings (typography, theme, width cap, parallel divider)    |
+| `?`                  | help overlay                                                      |
+| `q`                  | quit                                                              |
+
+Vim-style fallbacks (`hjkl`, `gg`/`G`, `H`/`L`, `Ctrl-d`/`Ctrl-u`) are also
+wired up silently for muscle memory; the arrow keys above are the
+documented surface.
 
 `:b` extensions on the jump bar:
 
@@ -62,7 +66,7 @@ bible install kjv
 
 | Key          | Action                                          |
 | ------------ | ----------------------------------------------- |
-| `j` / `k`    | move selection                                  |
+| `↑` / `↓`    | move selection                                  |
 | `Enter`      | jump to bookmark (switches translation if needed) |
 | `d`          | delete the highlighted bookmark                 |
 | `Esc` / `q`  | close                                           |
@@ -71,7 +75,7 @@ bible install kjv
 
 | Key       | Action                            |
 | --------- | --------------------------------- |
-| `j` / `k` | move selection                    |
+| `↑` / `↓` | move selection                    |
 | `Enter`   | install or uninstall              |
 | `r`       | refresh catalog from GitHub       |
 | any text  | filter (id / name / language)     |
@@ -82,12 +86,12 @@ bible install kjv
 A live-preview modal: the chapter pane stays visible on the left while you
 adjust settings on the right.
 
-| Key                     | Action                                |
-| ----------------------- | ------------------------------------- |
-| `j` / `k`               | move selection                        |
-| `h` / `l` (or `←` / `→`)| decrement / increment value           |
-| `Enter`                 | same as `l` (increment / cycle)       |
-| `Esc` / `q`             | save and close                        |
+| Key             | Action                                |
+| --------------- | ------------------------------------- |
+| `↑` / `↓`       | move selection                        |
+| `←` / `→`       | change option (decrement / increment) |
+| `Enter`         | same as `→` (cycle forward)           |
+| `Esc` / `q`     | save and close                        |
 
 What's tunable:
 

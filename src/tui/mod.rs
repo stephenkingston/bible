@@ -549,6 +549,41 @@ impl App {
                     self.scroll = self.scroll.saturating_sub(10);
                 }
             }
+            // Arrow + paging key surface (the user-facing one).
+            KeyCode::Left if k.modifiers.contains(KeyModifiers::SHIFT) => self.go_book(-1),
+            KeyCode::Right if k.modifiers.contains(KeyModifiers::SHIFT) => self.go_book(1),
+            KeyCode::Left if k.modifiers.is_empty() => self.go_chapter(-1),
+            KeyCode::Right if k.modifiers.is_empty() => self.go_chapter(1),
+            KeyCode::PageDown => {
+                if self.parallel {
+                    self.shift_anchor(5);
+                } else {
+                    self.scroll = self.scroll.saturating_add(10);
+                }
+            }
+            KeyCode::PageUp => {
+                if self.parallel {
+                    self.shift_anchor(-5);
+                } else {
+                    self.scroll = self.scroll.saturating_sub(10);
+                }
+            }
+            KeyCode::Home => {
+                if self.parallel {
+                    self.verse_anchor = 1;
+                } else {
+                    self.scroll = 0;
+                }
+            }
+            KeyCode::End => {
+                if self.parallel {
+                    self.verse_anchor = u16::MAX / 2;
+                } else {
+                    self.scroll = u16::MAX / 2;
+                }
+            }
+            // Vim-style fallbacks — kept silent (no hint surface) for
+            // muscle-memory; arrow keys are the documented surface.
             KeyCode::Char('h') if modless => self.go_chapter(-1),
             KeyCode::Char('l') if modless => self.go_chapter(1),
             KeyCode::Char('H') => self.go_book(-1),

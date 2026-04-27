@@ -869,29 +869,78 @@ fn draw_bottom_bar(f: &mut Frame, app: &App, area: Rect, theme: &ResolvedTheme) 
             } else if app.parallel {
                 // Surface the parallel-close hint inline; without it `|` is
                 // hard to remember and there's no other obvious way out.
-                Line::from(vec![
-                    Span::styled(
-                        " :ref  /search  jk verse  hl chapter  ",
-                        Style::default().add_modifier(Modifier::DIM),
-                    ),
-                    Span::styled(
-                        "| close parallel",
-                        Style::default().fg(theme.title_translation).bold(),
-                    ),
-                    Span::styled(
-                        "  \\ swap  q quit ",
-                        Style::default().add_modifier(Modifier::DIM),
-                    ),
-                ])
+                let mut spans = vec![Span::raw(" ")];
+                spans.extend(hint_spans(&[
+                    (":", "ref"),
+                    ("/", "search"),
+                    ("↑↓", "change verse"),
+                    ("←→", "change chapter"),
+                ]));
+                spans.push(Span::raw("  "));
+                spans.push(Span::styled(
+                    "|",
+                    Style::default().fg(theme.title_translation).bold(),
+                ));
+                spans.push(Span::raw(" "));
+                spans.push(Span::styled(
+                    "close parallel",
+                    Style::default().fg(theme.title_translation).bold(),
+                ));
+                spans.push(Span::raw("  "));
+                spans.extend(hint_spans(&[
+                    ("\\", "swap"),
+                    ("q", "quit"),
+                ]));
+                spans.push(Span::raw(" "));
+                Line::from(spans)
             } else {
-                Line::from(Span::styled(
-                    " :ref  /search  hjkl move  , settings  q quit  ? help ",
-                    Style::default().add_modifier(Modifier::DIM),
-                ))
+                let mut spans = vec![Span::raw(" ")];
+                spans.extend(hint_spans(&[
+                    (":", "ref"),
+                    ("/", "search"),
+                    ("↑↓", "scroll"),
+                    ("←→", "change chapter"),
+                    (",", "settings"),
+                    ("q", "quit"),
+                    ("?", "help"),
+                ]));
+                spans.push(Span::raw(" "));
+                Line::from(spans)
             }
         }
     };
     f.render_widget(line, area);
+}
+
+/// Build a list of spans for a status-bar / modal-footer hint line. Each
+/// pair is (key-glyph, label); keys are coloured cyan + bold, labels are
+/// dim. Caller owns the leading/trailing-space framing of the line.
+fn hint_spans(pairs: &[(&'static str, &'static str)]) -> Vec<Span<'static>> {
+    let mut spans: Vec<Span<'static>> = Vec::with_capacity(pairs.len() * 4);
+    for (i, (key, label)) in pairs.iter().enumerate() {
+        if i > 0 {
+            spans.push(Span::raw("  "));
+        }
+        spans.push(Span::styled(
+            *key,
+            Style::default().fg(Color::Cyan).bold(),
+        ));
+        spans.push(Span::raw(" "));
+        spans.push(Span::styled(
+            *label,
+            Style::default().add_modifier(Modifier::DIM),
+        ));
+    }
+    spans
+}
+
+/// Wrap `hint_spans` output with a leading + trailing space and turn into a
+/// `Line`. Used for footer hints in modals.
+fn hint_line(pairs: &[(&'static str, &'static str)]) -> Line<'static> {
+    let mut spans = vec![Span::raw(" ")];
+    spans.extend(hint_spans(pairs));
+    spans.push(Span::raw(" "));
+    Line::from(spans)
 }
 
 fn sanitize_one_line(s: &str) -> String {
@@ -981,10 +1030,12 @@ fn draw_manager(f: &mut Frame, app: &App, area: Rect) {
     let list = List::new(items);
     f.render_widget(list, rows[1]);
 
-    let hint = Line::from(Span::styled(
-        " Enter install/uninstall  r refresh  jk move  Esc back ",
-        Style::default().add_modifier(Modifier::DIM),
-    ));
+    let hint = hint_line(&[
+        ("Enter", "install/uninstall"),
+        ("r", "refresh"),
+        ("↑↓", "move"),
+        ("Esc", "back"),
+    ]);
     f.render_widget(Paragraph::new(hint), rows[2]);
 }
 
@@ -1071,10 +1122,12 @@ fn draw_bookmarks(f: &mut Frame, app: &App, area: Rect) {
         f.render_widget(list, rows[0]);
     }
 
-    let hint = Line::from(Span::styled(
-        " Enter jump  d delete  jk move  Esc back ",
-        Style::default().add_modifier(Modifier::DIM),
-    ));
+    let hint = hint_line(&[
+        ("Enter", "jump"),
+        ("d", "delete"),
+        ("↑↓", "move"),
+        ("Esc", "back"),
+    ]);
     f.render_widget(Paragraph::new(hint), rows[1]);
 }
 
@@ -1088,35 +1141,45 @@ fn draw_help_overlay(f: &mut Frame, area: Rect) {
     let inner = block.inner(popup);
     f.render_widget(block, popup);
 
+    let header = |s: &'static str| {
+        Line::from(Span::styled(s, Style::default().bold().fg(Color::Yellow)))
+    };
+    let row = |key: &'static str, label: &'static str| {
+        Line::from(vec![
+            Span::raw("  "),
+            Span::styled(format!("{:<14}", key), Style::default().fg(Color::Cyan).bold()),
+            Span::styled(label, Style::default().add_modifier(Modifier::DIM)),
+        ])
+    };
     let lines = vec![
-        Line::from(Span::styled("Reading", Style::default().bold().fg(Color::Yellow))),
-        Line::from("  j / k          scroll line"),
-        Line::from("  Ctrl-d / Ctrl-u half-page"),
-        Line::from("  gg / G         top / bottom of chapter"),
-        Line::from("  h / l          previous / next chapter"),
-        Line::from("  H / L          previous / next book"),
+        header("Reading"),
+        row("↑ / ↓", "scroll line"),
+        row("PgUp / PgDn", "half-page"),
+        row("Home / End", "top / bottom of chapter"),
+        row("← / →", "previous / next chapter"),
+        row("Shift+← / →", "previous / next book"),
         Line::from(""),
-        Line::from(Span::styled("Lookup", Style::default().bold().fg(Color::Yellow))),
-        Line::from("  :              jump to reference (e.g. :John 3:16)"),
-        Line::from("  /              search current translation"),
-        Line::from("  ↑ / ↓          (in : or /) browse command history"),
-        Line::from("  n / N          next / previous search match"),
+        header("Lookup"),
+        row(":", "jump to reference (e.g. :John 3:16)"),
+        row("/", "search current translation"),
+        row("↑ / ↓", "(in : or /) browse command history"),
+        row("n / N", "next / previous search match"),
         Line::from(""),
-        Line::from(Span::styled("Bookmarks", Style::default().bold().fg(Color::Yellow))),
-        Line::from("  b              bookmark current chapter"),
-        Line::from("  :b N <note>    bookmark verse N with optional note"),
-        Line::from("  B              open bookmarks list  (Enter jump, d delete)"),
+        header("Bookmarks"),
+        row("b", "bookmark current chapter"),
+        row(":b N <note>", "bookmark verse N with optional note"),
+        row("B", "open bookmarks list  (Enter jump, d delete)"),
         Line::from(""),
-        Line::from(Span::styled("Translations", Style::default().bold().fg(Color::Yellow))),
-        Line::from("  T              translation manager"),
-        Line::from("  t              cycle installed translations"),
-        Line::from("  |              toggle parallel view (two translations side-by-side)"),
-        Line::from("  \\              swap the parallel-view secondary translation"),
+        header("Translations"),
+        row("T", "translation manager"),
+        row("t", "cycle installed translations"),
+        row("|", "toggle parallel view (two translations side-by-side)"),
+        row("\\", "swap the parallel-view secondary translation"),
         Line::from(""),
-        Line::from(Span::styled("Misc", Style::default().bold().fg(Color::Yellow))),
-        Line::from("  ,              settings (typography, theme, width, divider)"),
-        Line::from("  ?              this help (Esc to close)"),
-        Line::from("  q              quit"),
+        header("Misc"),
+        row(",", "settings (typography, theme, width, divider)"),
+        row("?", "this help (Esc to close)"),
+        row("q", "quit"),
     ];
     f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
 }
@@ -1328,10 +1391,11 @@ fn draw_settings(f: &mut Frame, app: &App, area: Rect) {
     }
     draw_settings_panel(f, app, panes[1]);
 
-    let hint = Line::from(Span::styled(
-        " jk move  hl change  Esc save & close ",
-        Style::default().add_modifier(Modifier::DIM),
-    ));
+    let hint = hint_line(&[
+        ("↑↓", "move"),
+        ("←→", "change option"),
+        ("Esc", "save & close"),
+    ]);
     f.render_widget(hint, rows[2]);
 }
 
