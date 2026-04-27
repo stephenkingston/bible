@@ -7,7 +7,10 @@
 
 mod draw;
 mod nav;
+mod note_editor;
 mod stderr_redirect;
+
+pub(crate) use note_editor::{NoteEditor, NoteEditorTarget};
 
 use std::io::{self, Stdout};
 use std::sync::Arc;
@@ -64,6 +67,7 @@ pub(crate) enum Mode {
     Bookmarks,
     PickSecondary,
     Settings,
+    EditingNote,
     Help,
     NoTranslation,
     Quit,
@@ -76,6 +80,20 @@ pub(crate) struct DownloadState {
 }
 
 const MAX_HISTORY: usize = 50;
+
+/// "Genesis 1" or "John 3:16" — used in status messages where we don't
+/// have a `BibleChapterReference` handy (e.g. saving a bookmark from the
+/// note editor's deferred target).
+fn format_bookmark_ref(book_number: u8, chapter: u16, verse: Option<u16>) -> String {
+    let book = crate::reference::book_from_number(book_number)
+        .ok()
+        .map(|b| crate::reference::book_display(&b))
+        .unwrap_or("?");
+    match verse {
+        Some(v) => format!("{} {}:{}", book, chapter, v),
+        None => format!("{} {}", book, chapter),
+    }
+}
 
 fn same_chapter(a: &NavSnapshot, b: &NavSnapshot) -> bool {
     a.translation == b.translation
@@ -144,6 +162,12 @@ pub(crate) struct App {
 
     pub bookmarks: Vec<crate::bookmarks::Bookmark>,
     pub bookmarks_cursor: usize,
+    /// Vertical scroll for the note-preview pane in the bookmarks list view.
+    pub bookmarks_note_scroll: u16,
+
+    /// Active multi-line note editor, if open. `Mode::EditingNote` ↔
+    /// `note_editor.is_some()` invariant.
+    pub note_editor: Option<NoteEditor>,
 
     /// User preferences — typography, theme, reader width, parallel divider.
     /// Mutated live by the Settings modal; flushed to disk on close.
@@ -315,6 +339,8 @@ impl App {
             manager_cursor: 0,
             bookmarks: crate::bookmarks::load(),
             bookmarks_cursor: 0,
+            bookmarks_note_scroll: 0,
+            note_editor: None,
             settings: crate::settings::load(),
             settings_cursor: 0,
             parallel: false,
@@ -635,6 +661,7 @@ impl App {
             Mode::Bookmarks => self.handle_bookmarks(k),
             Mode::PickSecondary => self.handle_pick_secondary(k),
             Mode::Settings => self.handle_settings(k),
+            Mode::EditingNote => self.handle_editing_note(k),
             Mode::Quit => {}
         }
         Ok(())
@@ -938,21 +965,43 @@ impl App {
         self.add_bookmark(None, "");
     }
 
+    /// Grammar:
+    ///   `:b`              — chapter bookmark, no note
+    ///   `:b N`            — verse N bookmark, no note
+    ///   `:b note`         — chapter bookmark, opens multi-line editor
+    ///   `:b N note`       — verse N bookmark, opens multi-line editor
+    /// Anything else is a parse error.
     fn handle_bookmark_command(&mut self, args: &str) {
         if args.is_empty() {
             self.bookmark_current_chapter();
             return;
         }
-        // First token: try to parse as a verse number. If so, the rest is the
-        // optional note. Otherwise the entire argument is the note for a
-        // chapter-level bookmark.
-        let mut parts = args.splitn(2, char::is_whitespace);
+        let mut parts = args.split_whitespace();
         let first = parts.next().unwrap_or("");
-        if let Ok(v) = first.parse::<u16>() {
-            let note = parts.next().unwrap_or("").trim();
-            self.add_bookmark(Some(v), note);
+        let second = parts.next();
+        let extra = parts.next();
+        let verse: Option<u16> = first.parse::<u16>().ok();
+        let opens_editor: bool = match (verse.is_some(), second, extra) {
+            (false, None, _) if first == "note" => true,
+            (false, _, _) if first != "note" => {
+                self.set_status(
+                    "syntax: :b | :b N | :b note | :b N note",
+                );
+                return;
+            }
+            (true, None, _) => false,
+            (true, Some("note"), None) => true,
+            _ => {
+                self.set_status(
+                    "syntax: :b | :b N | :b note | :b N note",
+                );
+                return;
+            }
+        };
+        if opens_editor {
+            self.open_note_editor_for_new(verse);
         } else {
-            self.add_bookmark(None, args);
+            self.add_bookmark(verse, "");
         }
     }
 
@@ -986,6 +1035,141 @@ impl App {
             Ok(()) => self.set_status(format!("bookmarked: {label}")),
             Err(e) => self.set_status(format!("bookmark save failed: {e}")),
         }
+    }
+
+    /// Open the note editor for a not-yet-saved bookmark. Cancel discards.
+    fn open_note_editor_for_new(&mut self, verse: Option<u16>) {
+        let Some(bible) = self.bible.as_ref() else {
+            self.set_status("no translation loaded");
+            return;
+        };
+        let Some(cr) = self.current.as_ref() else {
+            return;
+        };
+        let chap_u32: u32 = cr.chapter().into();
+        let Ok(chapter) = u16::try_from(chap_u32) else {
+            return;
+        };
+        let book = cr.book();
+        let ref_label = match verse {
+            Some(v) => format!("{} {}:{}", crate::reference::book_display(&book), chapter, v),
+            None => format!("{} {}", crate::reference::book_display(&book), chapter),
+        };
+        let label = format!("{} ({})", ref_label, bible.translation.display_name);
+        let target = NoteEditorTarget::NewBookmark {
+            translation: bible.translation.id.clone(),
+            book_number: book.number(),
+            chapter,
+            verse,
+        };
+        self.note_editor = Some(NoteEditor::new(target, label, ""));
+        self.mode = Mode::EditingNote;
+    }
+
+    /// Open the note editor for the highlighted bookmark in the list view.
+    fn open_note_editor_for_existing(&mut self) {
+        let Some(bm) = self.bookmarks.get(self.bookmarks_cursor) else {
+            return;
+        };
+        let book_label = crate::reference::book_from_number(bm.book_number)
+            .ok()
+            .map(|b| crate::reference::book_display(&b))
+            .unwrap_or("?");
+        let ref_label = match bm.verse {
+            Some(v) => format!("{} {}:{}", book_label, bm.chapter, v),
+            None => format!("{} {}", book_label, bm.chapter),
+        };
+        let label = format!("{} ({})", ref_label, bm.translation);
+        let target = NoteEditorTarget::EditExisting {
+            index: self.bookmarks_cursor,
+        };
+        self.note_editor = Some(NoteEditor::new(target, label, &bm.note));
+        self.mode = Mode::EditingNote;
+    }
+
+    fn handle_editing_note(&mut self, k: KeyEvent) {
+        let Some(editor) = self.note_editor.as_mut() else {
+            self.mode = Mode::Normal;
+            return;
+        };
+        let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
+        match k.code {
+            KeyCode::Esc => self.cancel_note_editor(),
+            KeyCode::Char('s') if ctrl => self.commit_note_editor(),
+            KeyCode::Enter => editor.insert_newline(),
+            KeyCode::Backspace => editor.backspace(),
+            KeyCode::Delete => editor.delete_forward(),
+            KeyCode::Left => editor.move_left(),
+            KeyCode::Right => editor.move_right(),
+            KeyCode::Up => editor.move_up(),
+            KeyCode::Down => editor.move_down(),
+            KeyCode::Home => editor.move_home(),
+            KeyCode::End => editor.move_end(),
+            KeyCode::PageDown => editor.page_down(10),
+            KeyCode::PageUp => editor.page_up(10),
+            KeyCode::Char(c) if !ctrl => editor.insert_char(c),
+            _ => {}
+        }
+    }
+
+    fn cancel_note_editor(&mut self) {
+        let return_to_list = matches!(
+            self.note_editor.as_ref().map(|e| &e.target),
+            Some(NoteEditorTarget::EditExisting { .. })
+        );
+        self.note_editor = None;
+        self.mode = if return_to_list {
+            Mode::Bookmarks
+        } else if self.bible.is_some() {
+            Mode::Normal
+        } else {
+            Mode::NoTranslation
+        };
+    }
+
+    fn commit_note_editor(&mut self) {
+        let Some(editor) = self.note_editor.take() else {
+            return;
+        };
+        let text = editor.current_text();
+        let return_to_list = matches!(editor.target, NoteEditorTarget::EditExisting { .. });
+        match editor.target {
+            NoteEditorTarget::NewBookmark {
+                translation,
+                book_number,
+                chapter,
+                verse,
+            } => {
+                let label = format_bookmark_ref(book_number, chapter, verse);
+                let bm = crate::bookmarks::Bookmark {
+                    translation,
+                    book_number,
+                    chapter,
+                    verse,
+                    note: text,
+                    created_at: chrono::Utc::now().to_rfc3339(),
+                };
+                self.bookmarks.push(bm);
+                match crate::bookmarks::save(&self.bookmarks) {
+                    Ok(()) => self.set_status(format!("bookmarked: {label}")),
+                    Err(e) => self.set_status(format!("bookmark save failed: {e}")),
+                }
+            }
+            NoteEditorTarget::EditExisting { index } => {
+                if let Some(bm) = self.bookmarks.get_mut(index) {
+                    bm.note = text;
+                    match crate::bookmarks::save(&self.bookmarks) {
+                        Ok(()) => self.set_status("note saved"),
+                        Err(e) => self.set_status(format!("save failed: {e}")),
+                    }
+                }
+            }
+        }
+        self.mode = if return_to_list {
+            Mode::Bookmarks
+        } else {
+            Mode::Normal
+        };
     }
 
     /// `y` keypress — copy the verse under the focus cursor.
@@ -1082,13 +1266,22 @@ impl App {
                 if !self.bookmarks.is_empty() {
                     let last = self.bookmarks.len() - 1;
                     self.bookmarks_cursor = (self.bookmarks_cursor + 1).min(last);
+                    self.bookmarks_note_scroll = 0;
                 }
             }
             KeyCode::Up | KeyCode::Char('k') => {
                 self.bookmarks_cursor = self.bookmarks_cursor.saturating_sub(1);
+                self.bookmarks_note_scroll = 0;
+            }
+            KeyCode::PageDown => {
+                self.bookmarks_note_scroll = self.bookmarks_note_scroll.saturating_add(5);
+            }
+            KeyCode::PageUp => {
+                self.bookmarks_note_scroll = self.bookmarks_note_scroll.saturating_sub(5);
             }
             KeyCode::Enter => self.jump_to_bookmark(),
             KeyCode::Char('d') => self.delete_bookmark(),
+            KeyCode::Char('e') => self.open_note_editor_for_existing(),
             _ => {}
         }
     }

@@ -35,6 +35,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         Mode::Manager => draw_manager(f, app, area),
         Mode::Bookmarks => draw_bookmarks(f, app, area),
         Mode::Settings => draw_settings(f, app, area),
+        Mode::EditingNote => draw_note_editor(f, app, area),
         _ => draw_reader(f, app, area),
     }
 
@@ -1171,12 +1172,11 @@ fn draw_bookmarks(f: &mut Frame, app: &App, area: Rect) {
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    let rows = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Min(0), Constraint::Length(1)])
-        .split(inner);
-
     if app.bookmarks.is_empty() {
+        let rows = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(0), Constraint::Length(1)])
+            .split(inner);
         let empty = Line::from(vec![
             Span::raw("  "),
             Span::styled(
@@ -1188,62 +1188,229 @@ fn draw_bookmarks(f: &mut Frame, app: &App, area: Rect) {
                 " on a chapter, or ",
                 Style::default().add_modifier(Modifier::DIM),
             ),
-            Span::styled(":b 16 my note", Style::default().fg(Color::Cyan).bold()),
+            Span::styled(":b note", Style::default().fg(Color::Cyan).bold()),
             Span::styled(
-                " to add one.",
+                " to add one with a multi-line note.",
                 Style::default().add_modifier(Modifier::DIM),
             ),
         ]);
         f.render_widget(empty, rows[0]);
-    } else {
-        let items: Vec<ListItem> = app
-            .bookmarks
-            .iter()
-            .enumerate()
-            .map(|(i, bm)| {
-                let book_label = crate::reference::book_from_number(bm.book_number)
-                    .ok()
-                    .map(|b| crate::reference::book_display(&b))
-                    .unwrap_or("?");
-                let ref_str = match bm.verse {
-                    Some(v) => format!("{} {}:{}", book_label, bm.chapter, v),
-                    None => format!("{} {}", book_label, bm.chapter),
-                };
-                let row_style = if i == app.bookmarks_cursor {
-                    Style::default().bg(Color::Indexed(236))
-                } else {
-                    Style::default()
-                };
-                let mut spans = vec![
-                    Span::raw(" ★ "),
-                    Span::styled(
-                        format!("{:24}", bm.translation),
-                        Style::default().fg(Color::Cyan),
-                    ),
-                    Span::raw(" · "),
-                    Span::styled(ref_str, Style::default().fg(Color::Yellow).bold()),
-                ];
-                if !bm.note.is_empty() {
-                    spans.push(Span::raw(" · "));
+        let hint = hint_line(&[
+            ("Enter", "jump"),
+            ("e", "edit note"),
+            ("d", "delete"),
+            ("↑↓", "move"),
+            ("Esc", "back"),
+        ]);
+        f.render_widget(Paragraph::new(hint), rows[1]);
+        return;
+    }
+
+    // List on top, full note of selected bookmark below, then a footer.
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(5),     // list
+            Constraint::Length(1),  // separator
+            Constraint::Length(8),  // note preview
+            Constraint::Length(1),  // hint footer
+        ])
+        .split(inner);
+
+    let items: Vec<ListItem> = app
+        .bookmarks
+        .iter()
+        .enumerate()
+        .map(|(i, bm)| {
+            let book_label = crate::reference::book_from_number(bm.book_number)
+                .ok()
+                .map(|b| crate::reference::book_display(&b))
+                .unwrap_or("?");
+            let ref_str = match bm.verse {
+                Some(v) => format!("{} {}:{}", book_label, bm.chapter, v),
+                None => format!("{} {}", book_label, bm.chapter),
+            };
+            let row_style = if i == app.bookmarks_cursor {
+                Style::default().bg(Color::Indexed(236))
+            } else {
+                Style::default()
+            };
+            // First line of the note, truncated, plus a line-count badge if
+            // there's more.
+            let note_first_line = bm.note.split('\n').next().unwrap_or("");
+            let line_count = if bm.note.is_empty() {
+                0
+            } else {
+                bm.note.split('\n').count()
+            };
+            let mut spans = vec![
+                Span::raw(" ★ "),
+                Span::styled(
+                    format!("{:24}", bm.translation),
+                    Style::default().fg(Color::Cyan),
+                ),
+                Span::raw(" · "),
+                Span::styled(ref_str, Style::default().fg(Color::Yellow).bold()),
+            ];
+            if line_count > 0 {
+                spans.push(Span::raw(" · "));
+                let preview = truncate_chars(note_first_line, 60);
+                spans.push(Span::styled(preview, Style::default()));
+                if line_count > 1 {
                     spans.push(Span::styled(
-                        format!("\"{}\"", bm.note),
-                        Style::default(),
+                        format!("  ({} lines)", line_count),
+                        Style::default().add_modifier(Modifier::DIM),
                     ));
                 }
-                ListItem::new(Line::from(spans)).style(row_style)
-            })
-            .collect();
-        let list = List::new(items);
-        f.render_widget(list, rows[0]);
+            }
+            ListItem::new(Line::from(spans)).style(row_style)
+        })
+        .collect();
+    f.render_widget(List::new(items), layout[0]);
+
+    // Separator line between list and note preview.
+    let sep = Line::from(Span::styled(
+        "─".repeat(layout[1].width as usize),
+        Style::default().fg(Color::Indexed(238)),
+    ));
+    f.render_widget(sep, layout[1]);
+
+    // Full-text note preview for the selected bookmark.
+    if let Some(bm) = app.bookmarks.get(app.bookmarks_cursor) {
+        let note_text = if bm.note.is_empty() {
+            String::from("(no note)")
+        } else {
+            bm.note.clone()
+        };
+        let note_style = if bm.note.is_empty() {
+            Style::default().add_modifier(Modifier::DIM)
+        } else {
+            Style::default()
+        };
+        let para = Paragraph::new(note_text)
+            .style(note_style)
+            .wrap(Wrap { trim: false })
+            .scroll((app.bookmarks_note_scroll, 0));
+        f.render_widget(para, layout[2]);
     }
 
     let hint = hint_line(&[
         ("Enter", "jump"),
+        ("e", "edit note"),
         ("d", "delete"),
         ("↑↓", "move"),
+        ("PgUp/PgDn", "scroll note"),
         ("Esc", "back"),
     ]);
-    f.render_widget(Paragraph::new(hint), rows[1]);
+    f.render_widget(Paragraph::new(hint), layout[3]);
+}
+
+fn draw_note_editor(f: &mut Frame, app: &App, area: Rect) {
+    let Some(editor) = app.note_editor.as_ref() else {
+        return;
+    };
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Yellow))
+        .title(Line::from(vec![
+            Span::raw(" "),
+            Span::styled("Edit note", Style::default().fg(Color::Yellow).bold()),
+            Span::raw(" — "),
+            Span::styled(editor.label.clone(), Style::default().fg(Color::Cyan).bold()),
+            Span::raw(" "),
+        ]));
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(0), Constraint::Length(1)])
+        .split(inner);
+
+    let editor_area = layout[0];
+    let visible_h = editor_area.height as usize;
+    if visible_h == 0 {
+        return;
+    }
+
+    // Adjust scroll so the cursor line is visible. Mutating editor.scroll
+    // would require &mut App; instead compute locally and mirror it via
+    // the cursor placement below.
+    let scroll = compute_editor_scroll(
+        editor.scroll as usize,
+        editor.cursor_line,
+        visible_h,
+    );
+
+    // Render lines.
+    for (i, line) in editor.lines.iter().enumerate().skip(scroll).take(visible_h) {
+        let row_idx = (i - scroll) as u16;
+        let row_area = Rect::new(
+            editor_area.x,
+            editor_area.y + row_idx,
+            editor_area.width,
+            1,
+        );
+        let prefix = format!("{:>3} │ ", i + 1);
+        let prefix_w = prefix.chars().count() as u16;
+        f.render_widget(
+            Line::from(vec![
+                Span::styled(
+                    prefix,
+                    Style::default().fg(Color::Indexed(238)),
+                ),
+                Span::raw(line.clone()),
+            ]),
+            row_area,
+        );
+        // Cursor position.
+        if i == editor.cursor_line {
+            // x = inner.x + line-prefix width + cursor_col (in chars). For
+            // simplicity treat the line as ASCII-ish; multi-byte chars in
+            // notes will visually drift, but cursor remains usable.
+            let cur_x = editor_area.x + prefix_w + editor.cursor_col as u16;
+            let cur_y = editor_area.y + row_idx;
+            // Clamp cursor inside the editor area.
+            let cur_x = cur_x.min(editor_area.x + editor_area.width.saturating_sub(1));
+            f.set_cursor_position((cur_x, cur_y));
+        }
+    }
+
+    let hint = hint_line(&[
+        ("Ctrl-S", "save"),
+        ("Esc", "cancel"),
+        ("Enter", "newline"),
+        ("↑↓←→", "move"),
+        ("PgUp/PgDn", "page"),
+    ]);
+    f.render_widget(Paragraph::new(hint), layout[1]);
+}
+
+/// Editor scroll = previous scroll, adjusted to keep the cursor line in
+/// view. Mirror of the chapter-pane `compute_scroll`, but per-line not
+/// per-verse.
+fn compute_editor_scroll(prev: usize, cursor_line: usize, visible: usize) -> usize {
+    if visible == 0 {
+        return prev;
+    }
+    if cursor_line < prev {
+        cursor_line
+    } else if cursor_line >= prev + visible {
+        cursor_line + 1 - visible
+    } else {
+        prev
+    }
+}
+
+/// Truncate a string to `max` chars, appending `…` if it was longer.
+fn truncate_chars(s: &str, max: usize) -> String {
+    let count = s.chars().count();
+    if count <= max {
+        return s.to_string();
+    }
+    let mut out: String = s.chars().take(max.saturating_sub(1)).collect();
+    out.push('…');
+    out
 }
 
 fn draw_help_overlay(f: &mut Frame, area: Rect) {
@@ -1282,9 +1449,11 @@ fn draw_help_overlay(f: &mut Frame, area: Rect) {
         row("Ctrl-O / Tab", "back / forward through reference history"),
         Line::from(""),
         header("Bookmarks"),
-        row("b", "bookmark current chapter"),
-        row(":b N <note>", "bookmark verse N with optional note"),
-        row("B", "open bookmarks list  (Enter jump, d delete)"),
+        row("b", "bookmark current chapter (no note)"),
+        row(":b N", "bookmark verse N (no note)"),
+        row(":b note", "bookmark chapter, opens multi-line note editor"),
+        row(":b N note", "bookmark verse N, opens multi-line note editor"),
+        row("B", "open bookmarks list  (Enter jump, e edit, d delete)"),
         Line::from(""),
         header("Copy"),
         row("y", "copy focused verse to clipboard"),

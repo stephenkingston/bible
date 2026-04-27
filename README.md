@@ -57,12 +57,16 @@ documented surface.
 
 `:b` extensions on the jump bar:
 
-| Input                    | Action                                                |
-| ------------------------ | ----------------------------------------------------- |
-| `:b`                     | bookmark current chapter, no note                     |
-| `:b 16`                  | bookmark verse 16 of current chapter                  |
-| `:b a great verse`       | bookmark current chapter with note                    |
-| `:b 16 a great verse`    | bookmark verse 16 with note                           |
+| Input          | Action                                                                 |
+| -------------- | ---------------------------------------------------------------------- |
+| `:b`           | bookmark current chapter, no note                                      |
+| `:b 16`        | bookmark verse 16 of current chapter, no note                          |
+| `:b note`      | bookmark current chapter, opens a multi-line note editor               |
+| `:b 16 note`   | bookmark verse 16, opens a multi-line note editor                      |
+
+In the note editor: `Ctrl-S` saves and closes; `Esc` cancels (discards
+unsaved changes — for new bookmarks this means the bookmark itself is
+discarded). Arrow keys / `Home` / `End` / `PgUp` / `PgDn` navigate.
 
 `:y` extensions for copying to the clipboard:
 
@@ -79,12 +83,18 @@ The clipboard payload is the verse text plus an attribution line:
 
 ### Bookmarks (`B`)
 
-| Key          | Action                                          |
-| ------------ | ----------------------------------------------- |
-| `↑` / `↓`    | move selection                                  |
-| `Enter`      | jump to bookmark (switches translation if needed) |
-| `d`          | delete the highlighted bookmark                 |
-| `Esc` / `q`  | close                                           |
+| Key            | Action                                              |
+| -------------- | --------------------------------------------------- |
+| `↑` / `↓`      | move selection                                      |
+| `Enter`        | jump to bookmark (switches translation if needed)   |
+| `e`            | edit the highlighted bookmark's note (multi-line)   |
+| `PgUp` / `PgDn`| scroll the note-preview pane                        |
+| `d`            | delete the highlighted bookmark                     |
+| `Esc` / `q`    | close                                               |
+
+The list shows the first line of each note plus a `(N lines)` badge if
+there's more; the full note of the selected bookmark renders in a
+preview pane below the list.
 
 ### Translation Manager
 
