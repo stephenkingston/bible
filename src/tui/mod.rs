@@ -68,6 +68,7 @@ pub(crate) enum Mode {
     PickSecondary,
     Settings,
     EditingNote,
+    Plan,
     Help,
     NoTranslation,
     Quit,
@@ -168,6 +169,14 @@ pub(crate) struct App {
     /// Active multi-line note editor, if open. `Mode::EditingNote` ↔
     /// `note_editor.is_some()` invariant.
     pub note_editor: Option<NoteEditor>,
+
+    /// Bible-in-a-Year plan generated for the current year on launch.
+    /// Plan content is deterministic from the year alone — only progress
+    /// (`plan_completed`) is persisted.
+    pub plan: crate::plan::ReadingPlan,
+    pub plan_completed: std::collections::HashSet<u16>,
+    /// 0-indexed day cursor in the plan list view.
+    pub plan_cursor: usize,
     /// In `Mode::EditingNote`, which pane has the keyboard? `false`
     /// (default) = the editor; `true` = the reader pane on the left, so
     /// the user can scroll the chapter for context while writing. `Tab`
@@ -323,6 +332,13 @@ impl App {
     fn new(event_tx: Sender<AppEvent>) -> Result<Self> {
         let installed = storage::list_installed().unwrap_or_default();
         let available = manifest::list_available();
+        // Plan: regenerate for current year. If the saved progress is for
+        // a different year (or missing/old schema), discard and start
+        // fresh — matches the "discard on year change" decision.
+        let plan_year = crate::plan::current_year();
+        let plan = crate::plan::generate_bible_in_a_year(plan_year);
+        let plan_completed =
+            crate::plan::load_completed_for(plan_year, &plan.plan_id);
         Ok(Self {
             bible: None,
             installed,
@@ -347,6 +363,9 @@ impl App {
             bookmarks_note_scroll: 0,
             note_editor: None,
             note_editor_focus_reader: false,
+            plan,
+            plan_completed,
+            plan_cursor: 0,
             settings: crate::settings::load(),
             settings_cursor: 0,
             parallel: false,
@@ -668,6 +687,7 @@ impl App {
             Mode::PickSecondary => self.handle_pick_secondary(k),
             Mode::Settings => self.handle_settings(k),
             Mode::EditingNote => self.handle_editing_note(k),
+            Mode::Plan => self.handle_plan(k),
             Mode::Quit => {}
         }
         Ok(())
@@ -744,6 +764,8 @@ impl App {
                 self.nav_forward();
             }
             KeyCode::Char('y') if modless => self.yank_current_verse(),
+            KeyCode::Char('p') if modless => self.jump_to_today_reading(),
+            KeyCode::Char('P') => self.open_plan_view(),
             _ => {}
         }
         if !matches!(k.code, KeyCode::Char('g')) {
@@ -1299,6 +1321,129 @@ impl App {
             )),
             Err(e) => self.set_status(format!("copy failed: {e}")),
         }
+    }
+
+    /// `p` — jump to today's reading and auto-mark today as completed.
+    /// User can unmark from the plan view if they jumped by mistake.
+    fn jump_to_today_reading(&mut self) {
+        let today = crate::plan::today_day_of_year();
+        let day_idx = (today.saturating_sub(1)) as usize;
+        self.jump_to_plan_day(day_idx, true);
+    }
+
+    /// `P` — open the full-year plan list, with the cursor on today.
+    fn open_plan_view(&mut self) {
+        let today = crate::plan::today_day_of_year();
+        self.plan_cursor = today.saturating_sub(1) as usize;
+        if self.plan_cursor >= self.plan.days.len() {
+            self.plan_cursor = self.plan.days.len().saturating_sub(1);
+        }
+        self.mode = Mode::Plan;
+    }
+
+    fn handle_plan(&mut self, k: KeyEvent) {
+        let n = self.plan.days.len();
+        if n == 0 {
+            self.mode = Mode::Normal;
+            return;
+        }
+        match k.code {
+            KeyCode::Esc | KeyCode::Char('q') => self.mode = Mode::Normal,
+            KeyCode::Down | KeyCode::Char('j') => {
+                self.plan_cursor = (self.plan_cursor + 1).min(n - 1);
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.plan_cursor = self.plan_cursor.saturating_sub(1);
+            }
+            KeyCode::PageDown => {
+                self.plan_cursor = (self.plan_cursor + 10).min(n - 1);
+            }
+            KeyCode::PageUp => {
+                self.plan_cursor = self.plan_cursor.saturating_sub(10);
+            }
+            KeyCode::Home | KeyCode::Char('g') => self.plan_cursor = 0,
+            KeyCode::End | KeyCode::Char('G') => self.plan_cursor = n - 1,
+            KeyCode::Char('t') => {
+                // Recenter on today.
+                let today = crate::plan::today_day_of_year();
+                self.plan_cursor = today.saturating_sub(1) as usize;
+                if self.plan_cursor >= n {
+                    self.plan_cursor = n - 1;
+                }
+            }
+            KeyCode::Enter => {
+                let idx = self.plan_cursor;
+                self.jump_to_plan_day(idx, true);
+            }
+            KeyCode::Char('m') => self.toggle_plan_complete(self.plan_cursor),
+            _ => {}
+        }
+    }
+
+    fn jump_to_plan_day(&mut self, day_idx: usize, mark_complete: bool) {
+        let Some(daily) = self.plan.days.get(day_idx).cloned() else {
+            return;
+        };
+        let Some(first) = daily.refs.first() else {
+            return;
+        };
+        let Ok(book) = book_from_number(first.book_number) else {
+            self.set_status("plan: invalid book in reading");
+            return;
+        };
+        let Ok(chap_u8) = u8::try_from(first.chapter_start) else {
+            self.set_status("plan: invalid chapter in reading");
+            return;
+        };
+        let Ok(cr) = BibleChapterReference::new(book, chap_u8) else {
+            self.set_status("plan: invalid reference in reading");
+            return;
+        };
+        if self.bible.is_none() {
+            self.set_status("plan: install a translation first (T)");
+            return;
+        }
+        self.push_history();
+        self.current = Some(cr);
+        self.focus_verse = 1;
+        self.pin_focus = true;
+        self.mode = Mode::Normal;
+        if mark_complete {
+            self.plan_completed.insert(daily.day);
+            self.save_plan_progress();
+        }
+        self.save_state();
+        self.set_status(format!(
+            "📖 day {}: {}",
+            daily.day,
+            daily.short()
+        ));
+    }
+
+    fn toggle_plan_complete(&mut self, day_idx: usize) {
+        let Some(daily) = self.plan.days.get(day_idx) else {
+            return;
+        };
+        if self.plan_completed.contains(&daily.day) {
+            self.plan_completed.remove(&daily.day);
+            self.set_status(format!("day {}: marked unread", daily.day));
+        } else {
+            self.plan_completed.insert(daily.day);
+            self.set_status(format!("day {}: marked read", daily.day));
+        }
+        self.save_plan_progress();
+    }
+
+    fn save_plan_progress(&self) {
+        let mut days: Vec<u16> = self.plan_completed.iter().copied().collect();
+        days.sort();
+        let file = crate::plan::PlanFile {
+            schema_version: 1,
+            year: self.plan.year,
+            plan_id: self.plan.plan_id.clone(),
+            completed_days: days,
+        };
+        let _ = crate::plan::save_progress(&file);
     }
 
     fn open_bookmarks(&mut self) {

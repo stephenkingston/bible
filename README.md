@@ -45,6 +45,8 @@ bible install kjv
 | `b`                  | bookmark current chapter (no prompt)                              |
 | `B`                  | open the bookmarks list                                           |
 | `y`                  | copy focused verse to clipboard                                   |
+| `p`                  | jump to today's Bible-in-a-Year reading (auto-marks done)         |
+| `P`                  | open the Bible-in-a-Year plan view                                |
 | `\|`                 | toggle parallel view (opens chooser if no secondary picked)       |
 | `\`                  | re-open the secondary-translation chooser to swap                 |
 | `,`                  | open Settings (typography, theme, width cap, parallel divider)    |
@@ -113,6 +115,35 @@ preview pane below the list.
 | `r`       | refresh catalog from GitHub       |
 | any text  | filter (id / name / language)     |
 | `Esc`     | back to Reader                    |
+
+### Reading plan (`p` / `P`)
+
+A "Bible in a Year" plan is generated for the current year on launch —
+1189 chapters split across 365 (or 366) days in canonical order. The
+top-right of the reader's title bar always shows today's reading, e.g.
+`📖 Today: Gen 14-15, Exo 1`.
+
+| Key in reader  | Action                                                            |
+| -------------- | ----------------------------------------------------------------- |
+| `p`            | jump to today's reading (first chapter) and auto-mark it complete |
+| `P`            | open the full-year plan view                                      |
+
+In the plan view:
+
+| Key            | Action                                                            |
+| -------------- | ----------------------------------------------------------------- |
+| `↑` / `↓`      | move selection                                                    |
+| `PgUp` / `PgDn`| jump 10 days                                                      |
+| `g` / `G`      | first / last day                                                  |
+| `t`            | recentre on today                                                 |
+| `Enter`        | jump to that day's reading and mark it complete                   |
+| `m`            | toggle complete / incomplete on the highlighted day               |
+| `Esc` / `q`    | back to reader                                                    |
+
+Progress lives in `<config>/plan.toml`. The plan content itself is
+deterministic from the year alone, so only progress is persisted; on
+year change (Jan 1) the file is regenerated and last year's progress
+is discarded.
 
 ### Settings (`,`)
 
@@ -219,6 +250,7 @@ ignored and defaults are used; the file is never clobbered):
 | `settings.toml`   | typography, theme, reader width cap, parallel divider, justify |
 | `bookmarks.toml`  | every bookmark you've made — chapter / verse + multi-line note |
 | `state.toml`      | last reading position (translation, book, chapter, focus verse) and your parallel-view pair, restored on next launch |
+| `plan.toml`       | reading-plan progress for the current year (which days you've completed) |
 | `manifest.json`   | cached catalog of available translations from `bible refresh`  |
 
 **Not persisted** — command history (`:` and `/` recall via `↑`/`↓`),

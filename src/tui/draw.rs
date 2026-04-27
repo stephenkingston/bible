@@ -36,6 +36,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         Mode::Bookmarks => draw_bookmarks(f, app, area),
         Mode::Settings => draw_settings(f, app, area),
         Mode::EditingNote => draw_note_editor_split(f, app, area),
+        Mode::Plan => draw_plan_view(f, app, area),
         _ => draw_reader(f, app, area),
     }
 
@@ -177,7 +178,7 @@ fn draw_top_bar(f: &mut Frame, app: &App, area: Rect, theme: &ResolvedTheme) {
         Some(cr) => format!("{} {}", book_display(&cr.book()), cr.chapter()),
         None => "—".to_string(),
     };
-    let line = Line::from(vec![
+    let left_line = Line::from(vec![
         Span::styled(
             " bible ",
             Style::default().bg(theme.border).fg(Color::White).bold(),
@@ -186,17 +187,48 @@ fn draw_top_bar(f: &mut Frame, app: &App, area: Rect, theme: &ResolvedTheme) {
         Span::styled(translation, Style::default().fg(theme.title_book).bold()),
         Span::raw(" │ "),
         Span::styled(position, Style::default().fg(theme.title_chapter)),
-        Span::raw("   "),
-        Span::styled("?", Style::default().add_modifier(Modifier::DIM)),
-        Span::styled(" help", Style::default().add_modifier(Modifier::DIM)),
-        Span::raw("  "),
-        Span::styled("T", Style::default().add_modifier(Modifier::DIM)),
-        Span::styled(" translations", Style::default().add_modifier(Modifier::DIM)),
-        Span::raw("  "),
-        Span::styled("q", Style::default().add_modifier(Modifier::DIM)),
-        Span::styled(" quit", Style::default().add_modifier(Modifier::DIM)),
     ]);
-    f.render_widget(line, area);
+
+    // Today's reading on the right. Hidden on very narrow terminals; the
+    // emoji + label is informative but it's not load-bearing.
+    let today = crate::plan::today_day_of_year();
+    let today_idx = today.saturating_sub(1) as usize;
+    let right_line: Option<Line> = app.plan.days.get(today_idx).map(|daily| {
+        let done = app.plan_completed.contains(&daily.day);
+        let mark_style = if done {
+            Style::default().fg(Color::Green).bold()
+        } else {
+            Style::default().fg(theme.title_chapter).bold()
+        };
+        Line::from(vec![
+            Span::styled("📖 ", Style::default()),
+            Span::styled(
+                "Today: ",
+                Style::default().add_modifier(Modifier::DIM),
+            ),
+            Span::styled(daily.short(), mark_style),
+            Span::raw(" "),
+        ])
+    });
+
+    let right_w = right_line
+        .as_ref()
+        .map(|l| l.width() as u16)
+        .unwrap_or(0);
+    // Only carve out the right slot if the bar is wide enough that the
+    // left side keeps at least 30 cells of breathing room.
+    if right_w > 0 && area.width.saturating_sub(right_w) >= 30 {
+        let split = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Min(0), Constraint::Length(right_w)])
+            .split(area);
+        f.render_widget(left_line, split[0]);
+        if let Some(rl) = right_line {
+            f.render_widget(rl, split[1]);
+        }
+    } else {
+        f.render_widget(left_line, area);
+    }
 }
 
 fn draw_welcome(f: &mut Frame, area: Rect) {
@@ -1420,6 +1452,121 @@ fn draw_note_editor_pane(f: &mut Frame, app: &App, area: Rect, focused: bool) {
     }
 }
 
+fn draw_plan_view(f: &mut Frame, app: &App, area: Rect) {
+    let total = app.plan.days.len();
+    let done = app.plan_completed.len();
+    let pct = if total > 0 { (done * 100) / total } else { 0 };
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Indexed(33)))
+        .title(Line::from(vec![
+            Span::raw(" "),
+            Span::styled("📖 ", Style::default()),
+            Span::styled(
+                format!("Bible in a Year — {}", app.plan.year),
+                Style::default().fg(Color::Cyan).bold(),
+            ),
+            Span::raw("  ·  "),
+            Span::styled(
+                format!("{}/{} days", done, total),
+                Style::default().fg(Color::Yellow).bold(),
+            ),
+            Span::raw(" "),
+            Span::styled(
+                format!("({}%)", pct),
+                Style::default().add_modifier(Modifier::DIM),
+            ),
+            Span::raw(" "),
+        ]));
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(0), Constraint::Length(1)])
+        .split(inner);
+
+    let visible = layout[0].height as usize;
+    if visible == 0 || total == 0 {
+        return;
+    }
+    let scroll = compute_list_scroll(app.plan_cursor, total, visible);
+    let today = crate::plan::today_day_of_year();
+
+    for (i, daily) in app.plan.days.iter().enumerate().skip(scroll).take(visible) {
+        let row_idx = (i - scroll) as u16;
+        let row_area = Rect::new(layout[0].x, layout[0].y + row_idx, layout[0].width, 1);
+        let is_cursor = i == app.plan_cursor;
+        let is_today = daily.day == today;
+        let is_done = app.plan_completed.contains(&daily.day);
+
+        let row_style = if is_cursor {
+            Style::default().bg(Color::Indexed(236))
+        } else {
+            Style::default()
+        };
+        let mark = if is_done { "✓" } else { "·" };
+        let mark_style = if is_done {
+            Style::default().fg(Color::Green).bold()
+        } else {
+            Style::default().add_modifier(Modifier::DIM)
+        };
+        let day_label_style = if is_today {
+            Style::default().fg(Color::Yellow).bold()
+        } else {
+            Style::default().fg(Color::Cyan)
+        };
+        let date_str = daily.date.format("%b %-d").to_string();
+
+        let mut spans = vec![
+            Span::raw(" "),
+            Span::styled(mark.to_string(), mark_style),
+            Span::raw("  "),
+            Span::styled(format!("Day {:>3}", daily.day), day_label_style),
+            Span::raw("  "),
+            Span::styled(
+                format!("{:>6}", date_str),
+                Style::default().add_modifier(Modifier::DIM),
+            ),
+            Span::raw("  "),
+            Span::raw(daily.short()),
+        ];
+        if is_today {
+            spans.push(Span::raw("   "));
+            spans.push(Span::styled(
+                "← today",
+                Style::default().fg(Color::Yellow),
+            ));
+        }
+        f.render_widget(Line::from(spans).style(row_style), row_area);
+    }
+
+    let hint = hint_line(&[
+        ("Enter", "jump"),
+        ("m", "mark/unmark"),
+        ("t", "today"),
+        ("↑↓", "move"),
+        ("PgUp/PgDn", "page"),
+        ("Esc", "back"),
+    ]);
+    f.render_widget(hint, layout[1]);
+}
+
+/// Generic scroll-with-cursor helper for fixed-height list views (plan,
+/// bookmarks, etc.). Pins cursor to top when above viewport, to bottom
+/// when below; no-op when already in view.
+fn compute_list_scroll(cursor: usize, total: usize, visible: usize) -> usize {
+    if visible == 0 || total == 0 {
+        return 0;
+    }
+    let max_scroll = total.saturating_sub(visible);
+    // Centre cursor in viewport when possible; clamp to ends.
+    let half = visible / 2;
+    let centred = cursor.saturating_sub(half);
+    centred.min(max_scroll)
+}
+
 /// Editor scroll = previous scroll, adjusted to keep the cursor line in
 /// view. Mirror of the chapter-pane `compute_scroll`, but per-line not
 /// per-verse.
@@ -1488,6 +1635,10 @@ fn draw_help_overlay(f: &mut Frame, area: Rect) {
         row(":b note", "bookmark chapter, opens multi-line note editor"),
         row(":b N note", "bookmark verse N, opens multi-line note editor"),
         row("B", "open bookmarks list  (Enter jump, e edit, d delete)"),
+        Line::from(""),
+        header("Reading plan"),
+        row("p", "jump to today's reading (auto-marks day complete)"),
+        row("P", "open Bible-in-a-Year plan view (m to toggle done)"),
         Line::from(""),
         header("Copy"),
         row("y", "copy focused verse to clipboard"),

@@ -26,6 +26,7 @@ pub mod download;
 pub mod error;
 pub mod manifest;
 pub mod parser;
+pub mod plan;
 pub mod reference;
 pub mod search;
 pub mod settings;
