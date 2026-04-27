@@ -1146,7 +1146,7 @@ fn draw_manager(f: &mut Frame, app: &mut App, area: Rect) {
 
     let hint = hint_line(&[
         ("Enter", "install/uninstall"),
-        ("r", "refresh"),
+        ("Ctrl-R", "refresh"),
         ("↑↓", "move"),
         ("Esc", "back"),
     ]);

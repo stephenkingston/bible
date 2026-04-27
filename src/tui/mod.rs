@@ -884,27 +884,40 @@ impl App {
     }
 
     fn handle_manager(&mut self, k: KeyEvent) {
-        // While the filter input is active (any printable key), feed it.
-        // Toggle list-vs-filter focus with Tab.
+        // The filter is always the focus — every letter typed feeds it.
+        // Commands use arrow keys, Esc, Enter, and Ctrl-modified letters
+        // so they don't collide with names like "James" or "Jeremiah".
         match k.code {
-            KeyCode::Esc | KeyCode::Char('q') => {
+            KeyCode::Esc => {
                 self.mode = if self.bible.is_some() {
                     Mode::Normal
                 } else {
                     Mode::NoTranslation
                 };
             }
-            KeyCode::Down | KeyCode::Char('j') if k.modifiers.is_empty() => {
+            KeyCode::Down => {
                 let n = self.filtered_indices().len();
                 if n > 0 {
                     self.manager_cursor = (self.manager_cursor + 1).min(n - 1);
                 }
             }
-            KeyCode::Up | KeyCode::Char('k') if k.modifiers.is_empty() => {
+            KeyCode::Up => {
                 self.manager_cursor = self.manager_cursor.saturating_sub(1);
             }
+            KeyCode::PageDown => {
+                let n = self.filtered_indices().len();
+                if n > 0 {
+                    self.manager_cursor =
+                        (self.manager_cursor + 10).min(n - 1);
+                }
+            }
+            KeyCode::PageUp => {
+                self.manager_cursor = self.manager_cursor.saturating_sub(10);
+            }
             KeyCode::Enter => self.toggle_install_at_cursor(),
-            KeyCode::Char('r') if k.modifiers.is_empty() => self.refresh_manifest_async(),
+            KeyCode::Char('r') if k.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.refresh_manifest_async();
+            }
             KeyCode::Backspace => {
                 let _ = self.manager_filter.handle_event(&Event::Key(k));
                 self.manager_cursor = 0;

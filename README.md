@@ -108,13 +108,18 @@ preview pane below the list.
 
 ### Translation Manager
 
-| Key       | Action                            |
-| --------- | --------------------------------- |
-| `↑` / `↓` | move selection                    |
-| `Enter`   | install or uninstall              |
-| `r`       | refresh catalog from GitHub       |
-| any text  | filter (id / name / language)     |
-| `Esc`     | back to Reader                    |
+The filter is always focused — every letter you type feeds it, so
+names like "James" or "Jeremiah" filter cleanly. Commands use arrow
+keys plus modifier-keyed letters.
+
+| Key             | Action                            |
+| --------------- | --------------------------------- |
+| any text        | filter (id / name / language)     |
+| `↑` / `↓`       | move selection                    |
+| `PgUp` / `PgDn` | jump 10 entries                   |
+| `Enter`         | install or uninstall              |
+| `Ctrl-R`        | refresh catalog from GitHub       |
+| `Esc`           | back to Reader                    |
 
 ### Reading plan (`p` / `P`)
 
