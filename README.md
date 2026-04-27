@@ -186,32 +186,44 @@ fn main() -> bible::Result<()> {
 }
 ```
 
-## Where translations live
+## Where your data lives
 
-Paths come from
-[`directories::ProjectDirs`](https://docs.rs/directories) — the standard data
-and config locations for each platform:
+`bible` keeps everything in two directories chosen by
+[`directories::ProjectDirs`](https://docs.rs/directories) — a **data**
+directory for the heavy bible binaries, and a **config** directory for
+your light, hand-editable preferences and reading state. Nothing is
+written outside these two directories.
 
-| OS      | Data                                                       | Config                                    |
+### Platform paths
+
+| OS      | Data directory                                             | Config directory                          |
 | ------- | ---------------------------------------------------------- | ----------------------------------------- |
 | Linux   | `~/.local/share/bible/`                                    | `~/.config/bible/`                        |
 | macOS   | `~/Library/Application Support/com.stephenkingston.bible/` | same as data                              |
 | Windows | `%APPDATA%\stephenkingston\bible\data\`                    | `%APPDATA%\stephenkingston\bible\config\` |
 
-Each installed translation lives under data at `translations/<id>/`, containing
-`bible.bin` (bincode-serialised) and `meta.json`. Your reader state lives under
-config:
+### What's in each
 
-| File                              | What it holds                              |
-| --------------------------------- | ------------------------------------------ |
-| `<config>/state.toml`             | last reading position + parallel-view pair |
-| `<config>/bookmarks.toml`         | your bookmarks (chapter or verse + note)   |
-| `<config>/settings.toml`          | typography, theme, width cap, divider      |
-| `<config>/manifest.json`          | cached catalog from `bible refresh`        |
+**Bible translations** — `<data>/translations/<id>/`, one folder per
+installed translation. Each contains:
 
-`state.toml`, `bookmarks.toml`, and `settings.toml` are all human-editable
-TOML and are schema-versioned: on a version mismatch the file is ignored
-(defaults are used; the file is never clobbered).
+- `bible.bin` — the parsed Bible serialised with `bincode`
+- `meta.json` — translation id, display name, language
+
+**Settings, bookmarks, and reading state** — all under `<config>/`,
+hand-editable TOML, schema-versioned (on version mismatch the file is
+ignored and defaults are used; the file is never clobbered):
+
+| File              | Source of truth for                                            |
+| ----------------- | -------------------------------------------------------------- |
+| `settings.toml`   | typography, theme, reader width cap, parallel divider, justify |
+| `bookmarks.toml`  | every bookmark you've made — chapter / verse + multi-line note |
+| `state.toml`      | last reading position (translation, book, chapter, focus verse) and your parallel-view pair, restored on next launch |
+| `manifest.json`   | cached catalog of available translations from `bible refresh`  |
+
+**Not persisted** — command history (`:` and `/` recall via `↑`/`↓`),
+back/forward navigation history (`Ctrl-O` / `Tab`), and search results
+all live in memory only and reset between launches.
 
 ## Limitations
 
