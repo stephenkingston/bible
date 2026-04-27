@@ -1,13 +1,11 @@
 # bible
 
-A beautiful TUI Bible reader, with translations downloaded on demand from the
+A beautiful, fast TUI Bible reader for the terminal — 200+ languages, 1000+
+translations, all downloaded on demand from the
 [Beblia Holy-Bible-XML-Format](https://github.com/Beblia/Holy-Bible-XML-Format)
-repository (200+ languages, 1000+ versions). No texts are embedded in the
-binary.
+repository. No texts are embedded in the binary.
 
-Canonical reference handling (parsing `John 3:16`, validating chapters/verses,
-multilingual references) is delegated to the
-[`bibleref`](https://crates.io/crates/bibleref) crate.
+<video src="https://github.com/stephenkingston/bible/raw/main/screenshots/screencast.webm" controls width="800"></video>
 
 ## Install
 
@@ -15,17 +13,58 @@ multilingual references) is delegated to the
 cargo install bible
 ```
 
+Then:
+
+```sh
+bible
+```
+
+On first run the reader has no translations. Press `i` to install English KJV
+straight away, or `T` to browse the full catalog. You can also install from
+the shell:
+
+```sh
+bible install kjv
+```
+
+## Screenshots
+
+| | |
+|:-:|:-:|
+| ![Reader](screenshots/reader.png) | ![Settings](screenshots/settings.png) |
+| Reader with focus cursor + chapter pane | Live-preview Settings modal |
+| ![Search](screenshots/search.png) | ![Year plan](screenshots/year-plan.png) |
+| Substring search across the whole text | Bible-in-a-Year plan, full-year view |
+| ![Help](screenshots/help.png) | |
+| Help overlay (`?`) | |
+
+## Highlights
+
+- **Verse cursor** with `↑/↓`, viewport scrolls only when the cursor leaves
+  the visible area; mild bg highlight is always on so you can't lose the
+  focus.
+- **Substring search** with `/`, jumps between hits with `n`/`N`, multilingual.
+- **Reference jumps** with `:John 3:16` (also `Jn 3,16` and other forms,
+  any installed language).
+- **Bookmarks** with multi-line notes: `b` for chapter, `:b 16 note` opens
+  a split-pane editor while you keep reading the chapter on the left.
+- **Bible-in-a-Year reading plan** generated for the current year on launch;
+  `p` jumps to today and marks it done; `P` opens the full-year list.
+- **Parallel view** (`|`) with two installed translations side-by-side,
+  scroll-locked by verse.
+- **Settings modal** (`,`) with live preview — typography, theme presets,
+  width cap, parallel divider, justify, per-script letter padding.
+- **Bookmarks, settings, reading state, plan progress** all in
+  human-editable TOML under your platform's config directory.
+
+Canonical reference handling (parsing `John 3:16`, validating
+chapters/verses, multilingual references) is delegated to the
+[`bibleref`](https://crates.io/crates/bibleref) crate.
+
 ## Use as a TUI
 
 ```sh
 bible                       # launches the TUI when stdout is a TTY
-```
-
-On first run there are no translations. Press `i` to install English KJV, or
-`T` to browse the catalog. From the shell:
-
-```sh
-bible install kjv
 ```
 
 ### Keybindings (Reader)
