@@ -181,7 +181,7 @@ fn draw_top_bar(f: &mut Frame, app: &App, area: Rect, theme: &ResolvedTheme) {
     let left_line = Line::from(vec![
         Span::styled(
             " bible ",
-            Style::default().bg(theme.border).fg(Color::White).bold(),
+            Style::default().bg(theme.badge_bg).fg(theme.badge_fg).bold(),
         ),
         Span::raw(" "),
         Span::styled(translation, Style::default().fg(theme.title_book).bold()),
@@ -1803,6 +1803,11 @@ pub(super) struct ResolvedTheme {
     pub title_translation: Color,
     pub title_book: Color,
     pub title_chapter: Color,
+    /// `" bible "` badge in the top bar — picked per-theme so it stays
+    /// readable. Tied to `border` would invert to white-on-white in the
+    /// high-contrast preset.
+    pub badge_bg: Color,
+    pub badge_fg: Color,
     pub verse_number: Color,
     pub verse_number_super: Color,
     /// Subtle bg painted across the focused verse — always-on cursor.
@@ -1821,6 +1826,8 @@ fn resolve_theme(s: &Settings) -> ResolvedTheme {
             title_translation: Color::Magenta,
             title_book: Color::Cyan,
             title_chapter: Color::Yellow,
+            badge_bg: Color::Indexed(24),
+            badge_fg: Color::White,
             verse_number: Color::Indexed(244),
             verse_number_super: Color::Indexed(244),
             focus_bg: Color::Indexed(237),
@@ -1835,6 +1842,8 @@ fn resolve_theme(s: &Settings) -> ResolvedTheme {
             title_translation: Color::Indexed(125),
             title_book: Color::Indexed(37), // cyan
             title_chapter: Color::Indexed(136), // yellow
+            badge_bg: Color::Indexed(33),
+            badge_fg: Color::White,
             verse_number: Color::Indexed(243), // base01
             verse_number_super: Color::Indexed(243),
             focus_bg: Color::Indexed(235), // base02
@@ -1848,6 +1857,8 @@ fn resolve_theme(s: &Settings) -> ResolvedTheme {
             title_translation: Color::White,
             title_book: Color::White,
             title_chapter: Color::White,
+            badge_bg: Color::White,
+            badge_fg: Color::Black,
             verse_number: Color::White,
             verse_number_super: Color::Gray,
             focus_bg: Color::DarkGray,
