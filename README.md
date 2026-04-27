@@ -64,9 +64,17 @@ documented surface.
 | `:b note`      | bookmark current chapter, opens a multi-line note editor               |
 | `:b 16 note`   | bookmark verse 16, opens a multi-line note editor                      |
 
-In the note editor: `Ctrl-S` saves and closes; `Esc` cancels (discards
-unsaved changes — for new bookmarks this means the bookmark itself is
-discarded). Arrow keys / `Home` / `End` / `PgUp` / `PgDn` navigate.
+The note editor is a split-pane view: chapter on the left, editor on
+the right. `Tab` toggles which pane has the keyboard, so you can scroll
+the chapter for context while writing.
+
+| Key             | Action                                                   |
+| --------------- | -------------------------------------------------------- |
+| `Ctrl-S`        | save and close                                           |
+| `Esc`           | cancel (discards a not-yet-saved bookmark; reverts an edit) |
+| `Tab`           | toggle focus between editor and reader                   |
+| In editor pane  | `Enter` newline, arrows / Home / End / PgUp / PgDn move  |
+| In reader pane  | `↑/↓` verse, `←/→` chapter, `Shift+←/→` book             |
 
 `:y` extensions for copying to the clipboard:
 

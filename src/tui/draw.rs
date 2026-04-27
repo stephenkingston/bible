@@ -35,7 +35,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         Mode::Manager => draw_manager(f, app, area),
         Mode::Bookmarks => draw_bookmarks(f, app, area),
         Mode::Settings => draw_settings(f, app, area),
-        Mode::EditingNote => draw_note_editor(f, app, area),
+        Mode::EditingNote => draw_note_editor_split(f, app, area),
         _ => draw_reader(f, app, area),
     }
 
@@ -1305,16 +1305,79 @@ fn draw_bookmarks(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(Paragraph::new(hint), layout[3]);
 }
 
-fn draw_note_editor(f: &mut Frame, app: &App, area: Rect) {
+/// Split-screen layout for the note-editing mode: chapter pane on the
+/// left, editor pane on the right. `Tab` toggles which pane has focus;
+/// the focused pane gets a brighter border and (for the editor) a
+/// blinking terminal cursor.
+fn draw_note_editor_split(f: &mut Frame, app: &mut App, area: Rect) {
+    let theme = resolve_theme(&app.settings);
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Min(0),
+            Constraint::Length(1),
+        ])
+        .split(area);
+
+    draw_top_bar(f, app, rows[0], &theme);
+
+    let panes = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(rows[1]);
+
+    // Left: chapter pane (read-only context for note-writing). Reuses
+    // the same renderer as the main reader.
+    if let Some(b) = app.bible.as_ref().map(Arc::clone) {
+        let new_scroll = draw_chapter_pane(f, app, panes[0], &b, false, &theme);
+        if let Some(s) = new_scroll {
+            app.scroll = s;
+            app.pin_focus = false;
+        }
+    } else {
+        draw_welcome(f, panes[0]);
+    }
+
+    // Right: note editor.
+    let editor_focused = !app.note_editor_focus_reader;
+    draw_note_editor_pane(f, app, panes[1], editor_focused);
+
+    let hint = if app.note_editor_focus_reader {
+        hint_line(&[
+            ("Tab", "switch to editor"),
+            ("↑↓", "verse"),
+            ("←→", "chapter"),
+            ("Ctrl-S", "save note"),
+            ("Esc", "cancel"),
+        ])
+    } else {
+        hint_line(&[
+            ("Tab", "switch to reader"),
+            ("Ctrl-S", "save"),
+            ("Esc", "cancel"),
+            ("Enter", "newline"),
+            ("↑↓←→", "move"),
+        ])
+    };
+    f.render_widget(hint, rows[2]);
+}
+
+fn draw_note_editor_pane(f: &mut Frame, app: &App, area: Rect, focused: bool) {
     let Some(editor) = app.note_editor.as_ref() else {
         return;
     };
+    let border_color = if focused {
+        Color::Yellow
+    } else {
+        Color::Indexed(238)
+    };
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Yellow))
+        .border_style(Style::default().fg(border_color))
         .title(Line::from(vec![
             Span::raw(" "),
-            Span::styled("Edit note", Style::default().fg(Color::Yellow).bold()),
+            Span::styled("Note", Style::default().fg(Color::Yellow).bold()),
             Span::raw(" — "),
             Span::styled(editor.label.clone(), Style::default().fg(Color::Cyan).bold()),
             Span::raw(" "),
@@ -1322,68 +1385,39 @@ fn draw_note_editor(f: &mut Frame, app: &App, area: Rect) {
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    let layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Min(0), Constraint::Length(1)])
-        .split(inner);
-
-    let editor_area = layout[0];
-    let visible_h = editor_area.height as usize;
+    let visible_h = inner.height as usize;
     if visible_h == 0 {
         return;
     }
 
-    // Adjust scroll so the cursor line is visible. Mutating editor.scroll
-    // would require &mut App; instead compute locally and mirror it via
-    // the cursor placement below.
+    // Compute scroll locally each frame from cursor + visible. (Editor
+    // doesn't persist scroll itself — we don't have &mut App here.)
     let scroll = compute_editor_scroll(
         editor.scroll as usize,
         editor.cursor_line,
         visible_h,
     );
 
-    // Render lines.
     for (i, line) in editor.lines.iter().enumerate().skip(scroll).take(visible_h) {
         let row_idx = (i - scroll) as u16;
-        let row_area = Rect::new(
-            editor_area.x,
-            editor_area.y + row_idx,
-            editor_area.width,
-            1,
-        );
+        let row_area = Rect::new(inner.x, inner.y + row_idx, inner.width, 1);
         let prefix = format!("{:>3} │ ", i + 1);
         let prefix_w = prefix.chars().count() as u16;
         f.render_widget(
             Line::from(vec![
-                Span::styled(
-                    prefix,
-                    Style::default().fg(Color::Indexed(238)),
-                ),
+                Span::styled(prefix, Style::default().fg(Color::Indexed(238))),
                 Span::raw(line.clone()),
             ]),
             row_area,
         );
-        // Cursor position.
-        if i == editor.cursor_line {
-            // x = inner.x + line-prefix width + cursor_col (in chars). For
-            // simplicity treat the line as ASCII-ish; multi-byte chars in
-            // notes will visually drift, but cursor remains usable.
-            let cur_x = editor_area.x + prefix_w + editor.cursor_col as u16;
-            let cur_y = editor_area.y + row_idx;
-            // Clamp cursor inside the editor area.
-            let cur_x = cur_x.min(editor_area.x + editor_area.width.saturating_sub(1));
+        // Place the terminal cursor only when the editor pane is focused.
+        if focused && i == editor.cursor_line {
+            let cur_x = inner.x + prefix_w + editor.cursor_col as u16;
+            let cur_y = inner.y + row_idx;
+            let cur_x = cur_x.min(inner.x + inner.width.saturating_sub(1));
             f.set_cursor_position((cur_x, cur_y));
         }
     }
-
-    let hint = hint_line(&[
-        ("Ctrl-S", "save"),
-        ("Esc", "cancel"),
-        ("Enter", "newline"),
-        ("↑↓←→", "move"),
-        ("PgUp/PgDn", "page"),
-    ]);
-    f.render_widget(Paragraph::new(hint), layout[1]);
 }
 
 /// Editor scroll = previous scroll, adjusted to keep the cursor line in

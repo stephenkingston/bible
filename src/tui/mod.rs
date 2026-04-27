@@ -168,6 +168,11 @@ pub(crate) struct App {
     /// Active multi-line note editor, if open. `Mode::EditingNote` ↔
     /// `note_editor.is_some()` invariant.
     pub note_editor: Option<NoteEditor>,
+    /// In `Mode::EditingNote`, which pane has the keyboard? `false`
+    /// (default) = the editor; `true` = the reader pane on the left, so
+    /// the user can scroll the chapter for context while writing. `Tab`
+    /// toggles.
+    pub note_editor_focus_reader: bool,
 
     /// User preferences — typography, theme, reader width, parallel divider.
     /// Mutated live by the Settings modal; flushed to disk on close.
@@ -341,6 +346,7 @@ impl App {
             bookmarks_cursor: 0,
             bookmarks_note_scroll: 0,
             note_editor: None,
+            note_editor_focus_reader: false,
             settings: crate::settings::load(),
             settings_cursor: 0,
             parallel: false,
@@ -1063,6 +1069,7 @@ impl App {
             verse,
         };
         self.note_editor = Some(NoteEditor::new(target, label, ""));
+        self.note_editor_focus_reader = false;
         self.mode = Mode::EditingNote;
     }
 
@@ -1084,18 +1091,39 @@ impl App {
             index: self.bookmarks_cursor,
         };
         self.note_editor = Some(NoteEditor::new(target, label, &bm.note));
+        self.note_editor_focus_reader = false;
         self.mode = Mode::EditingNote;
     }
 
     fn handle_editing_note(&mut self, k: KeyEvent) {
-        let Some(editor) = self.note_editor.as_mut() else {
+        if self.note_editor.is_none() {
             self.mode = Mode::Normal;
             return;
-        };
+        }
         let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
+        // Save / cancel / pane-toggle work from either focus.
+        match (k.code, ctrl) {
+            (KeyCode::Esc, _) => return self.cancel_note_editor(),
+            (KeyCode::Char('s'), true) => return self.commit_note_editor(),
+            (KeyCode::Tab, _) => {
+                self.note_editor_focus_reader = !self.note_editor_focus_reader;
+                return;
+            }
+            _ => {}
+        }
+        if self.note_editor_focus_reader {
+            self.handle_editing_note_reader_keys(k);
+        } else {
+            self.handle_editing_note_editor_keys(k, ctrl);
+        }
+    }
+
+    /// Editor pane has focus — typing/editing keys.
+    fn handle_editing_note_editor_keys(&mut self, k: KeyEvent, ctrl: bool) {
+        let Some(editor) = self.note_editor.as_mut() else {
+            return;
+        };
         match k.code {
-            KeyCode::Esc => self.cancel_note_editor(),
-            KeyCode::Char('s') if ctrl => self.commit_note_editor(),
             KeyCode::Enter => editor.insert_newline(),
             KeyCode::Backspace => editor.backspace(),
             KeyCode::Delete => editor.delete_forward(),
@@ -1108,6 +1136,25 @@ impl App {
             KeyCode::PageDown => editor.page_down(10),
             KeyCode::PageUp => editor.page_up(10),
             KeyCode::Char(c) if !ctrl => editor.insert_char(c),
+            _ => {}
+        }
+    }
+
+    /// Reader pane has focus — verse cursor + chapter navigation. Subset
+    /// of `handle_normal` so destructive keys (`q`, `,`, `t`, etc.) don't
+    /// hijack the editor session.
+    fn handle_editing_note_reader_keys(&mut self, k: KeyEvent) {
+        match k.code {
+            KeyCode::Up => self.shift_focus(-1),
+            KeyCode::Down => self.shift_focus(1),
+            KeyCode::Left if k.modifiers.contains(KeyModifiers::SHIFT) => self.go_book(-1),
+            KeyCode::Right if k.modifiers.contains(KeyModifiers::SHIFT) => self.go_book(1),
+            KeyCode::Left => self.go_chapter(-1),
+            KeyCode::Right => self.go_chapter(1),
+            KeyCode::PageDown => self.shift_focus(5),
+            KeyCode::PageUp => self.shift_focus(-5),
+            KeyCode::Home => self.focus_verse = 1,
+            KeyCode::End => self.focus_verse = self.max_verse_in_chapter(),
             _ => {}
         }
     }
