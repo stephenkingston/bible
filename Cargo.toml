@@ -35,6 +35,10 @@ ratatui = { version = "0.30", default-features = false, features = ["crossterm_0
 crossterm = "0.29"
 tui-input = "0.15"
 clap = { version = "4", features = ["derive"] }
+# Cross-platform clipboard for the `y` / `:y` yank commands. On Linux this
+# brings in X11/Wayland system libraries; on a headless tty `Clipboard::new`
+# returns an error which we surface as a status message.
+arboard = "3"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

@@ -83,6 +83,14 @@ fn same_chapter(a: &NavSnapshot, b: &NavSnapshot) -> bool {
         && a.chapter == b.chapter
 }
 
+/// Cross-platform clipboard write. Returns Err with a human-readable
+/// message on failure (e.g. headless tty with no DISPLAY).
+fn copy_to_clipboard(text: &str) -> std::result::Result<(), String> {
+    let mut cb = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+    cb.set_text(text.to_string()).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 fn push_history(history: &mut Vec<String>, entry: &str) {
     let entry = entry.trim();
     if entry.is_empty() {
@@ -738,6 +746,7 @@ impl App {
             KeyCode::Char('i') if k.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.nav_forward();
             }
+            KeyCode::Char('y') if modless => self.yank_current_verse(),
             _ => {}
         }
         if !matches!(k.code, KeyCode::Char('g')) {
@@ -774,6 +783,10 @@ impl App {
                     self.bookmark_current_chapter();
                 } else if let Some(rest) = trimmed.strip_prefix("b ") {
                     self.handle_bookmark_command(rest.trim());
+                } else if trimmed == "y" {
+                    self.yank_current_verse();
+                } else if let Some(rest) = trimmed.strip_prefix("y ") {
+                    self.handle_yank_command(rest.trim());
                 } else {
                     self.jump_to(&q);
                 }
@@ -1008,6 +1021,109 @@ impl App {
         match crate::bookmarks::save(&self.bookmarks) {
             Ok(()) => self.set_status(format!("bookmarked: {label}")),
             Err(e) => self.set_status(format!("bookmark save failed: {e}")),
+        }
+    }
+
+    /// `y` keypress — copy the verse the user is most likely focused on.
+    fn yank_current_verse(&mut self) {
+        let v = self.focus_verse();
+        self.yank_verses(v, v);
+    }
+
+    /// `:y N`, `:y N-M`, `:y all` / `:y *`.
+    fn handle_yank_command(&mut self, args: &str) {
+        if args.is_empty() {
+            self.yank_current_verse();
+            return;
+        }
+        if matches!(args, "all" | "*") {
+            self.yank_verses(1, u16::MAX);
+            return;
+        }
+        if let Some((s, e)) = args.split_once('-') {
+            if let (Ok(start), Ok(end)) = (s.trim().parse::<u16>(), e.trim().parse::<u16>()) {
+                if start == 0 || end < start {
+                    self.set_status(format!("invalid range: :y {args}"));
+                    return;
+                }
+                self.yank_verses(start, end);
+                return;
+            }
+        }
+        if let Ok(n) = args.parse::<u16>() {
+            self.yank_verses(n, n);
+            return;
+        }
+        self.set_status(format!("unknown yank: :y {args}"));
+    }
+
+    /// Best guess for the verse the user has in focus right now: an active
+    /// search hit on this chapter wins; otherwise `verse_anchor` (which
+    /// holds the most recent jump target).
+    fn focus_verse(&self) -> u16 {
+        if let Some(cr) = self.current.as_ref() {
+            if let Some(vr) = self.search_hits.get(self.search_idx) {
+                if vr.book().number() == cr.book().number() {
+                    let cur_chap: u32 = cr.chapter().into();
+                    let hit_chap: u32 = vr.chapter().into();
+                    if cur_chap == hit_chap {
+                        let v: u32 = vr.verse().into();
+                        if let Ok(v) = u16::try_from(v) {
+                            return v;
+                        }
+                    }
+                }
+            }
+        }
+        self.verse_anchor.max(1)
+    }
+
+    fn yank_verses(&mut self, start: u16, end: u16) {
+        let Some(bible) = self.bible.as_ref() else {
+            self.set_status("no translation loaded");
+            return;
+        };
+        let Some(cr) = self.current.as_ref() else {
+            return;
+        };
+        let Some(chapter) = bible.get_chapter(cr) else {
+            self.set_status("chapter not present in this translation");
+            return;
+        };
+        let verses: Vec<&crate::bible::Verse> = chapter
+            .verses
+            .iter()
+            .filter(|v| v.number >= start && v.number <= end)
+            .collect();
+        if verses.is_empty() {
+            self.set_status(format!("no verses found in {start}-{end}"));
+            return;
+        }
+        let body: String = verses
+            .iter()
+            .map(|v| v.text.as_str())
+            .collect::<Vec<_>>()
+            .join(" ");
+        let actual_start = verses.first().unwrap().number;
+        let actual_end = verses.last().unwrap().number;
+        let chap_n: u32 = cr.chapter().into();
+        let book_label = crate::reference::book_display(&cr.book());
+        let ref_label = if actual_start == actual_end {
+            format!("{} {}:{}", book_label, chap_n, actual_start)
+        } else {
+            format!("{} {}:{}-{}", book_label, chap_n, actual_start, actual_end)
+        };
+        let payload = format!(
+            "{}\n\n— {} ({})",
+            body, ref_label, bible.translation.display_name
+        );
+        match copy_to_clipboard(&payload) {
+            Ok(()) => self.set_status(format!(
+                "copied {} ({} chars)",
+                ref_label,
+                payload.chars().count()
+            )),
+            Err(e) => self.set_status(format!("copy failed: {e}")),
         }
     }
 

@@ -44,6 +44,7 @@ bible install kjv
 | `T`                  | open Translation Manager                                          |
 | `b`                  | bookmark current chapter (no prompt)                              |
 | `B`                  | open the bookmarks list                                           |
+| `y`                  | copy focused verse to clipboard                                   |
 | `\|`                 | toggle parallel view (opens chooser if no secondary picked)       |
 | `\`                  | re-open the secondary-translation chooser to swap                 |
 | `,`                  | open Settings (typography, theme, width cap, parallel divider)    |
@@ -62,6 +63,19 @@ documented surface.
 | `:b 16`                  | bookmark verse 16 of current chapter                  |
 | `:b a great verse`       | bookmark current chapter with note                    |
 | `:b 16 a great verse`    | bookmark verse 16 with note                           |
+
+`:y` extensions for copying to the clipboard:
+
+| Input        | Action                                                  |
+| ------------ | ------------------------------------------------------- |
+| `y` (key)    | copy the focused verse (search hit, else last jump)     |
+| `:y`         | same as `y`                                             |
+| `:y 16`      | copy verse 16 of the current chapter                    |
+| `:y 1-12`    | copy verses 1 through 12                                |
+| `:y all`     | copy the entire chapter                                 |
+
+The clipboard payload is the verse text plus an attribution line:
+`"<text>\n\n— Book Chap:Verse (Translation)"`.
 
 ### Bookmarks (`B`)
 
