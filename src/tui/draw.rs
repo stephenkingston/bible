@@ -8,6 +8,9 @@ use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
 use crate::reference::book_display;
+use crate::settings::{
+    DividerStyle, ScriptPadding, Settings, ThemePreset, VerseNumberStyle,
+};
 use crate::storage;
 
 use super::{App, Mode, SPINNER_FRAMES};
@@ -27,6 +30,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     match app.mode {
         Mode::Manager => draw_manager(f, app, area),
         Mode::Bookmarks => draw_bookmarks(f, app, area),
+        Mode::Settings => draw_settings(f, app, area),
         _ => draw_reader(f, app, area),
     }
 
@@ -43,6 +47,7 @@ pub fn draw(f: &mut Frame, app: &App) {
 }
 
 fn draw_reader(f: &mut Frame, app: &App, area: Rect) {
+    let theme = resolve_theme(&app.settings);
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -52,27 +57,105 @@ fn draw_reader(f: &mut Frame, app: &App, area: Rect) {
         ])
         .split(area);
 
-    draw_top_bar(f, app, rows[0]);
+    draw_top_bar(f, app, rows[0], &theme);
     if app.mode == Mode::NoTranslation || app.bible.is_none() {
         draw_welcome(f, rows[1]);
     } else if app.parallel && app.secondary_bible.is_some() {
+        let body = apply_width_cap(rows[1], &app.settings);
         let panes = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-            .split(rows[1]);
+            .split(body);
         let primary = app.bible.as_ref().unwrap();
-        draw_chapter_pane(f, app, panes[0], primary, false);
+        draw_chapter_pane(f, app, panes[0], primary, false, &theme);
         if let Some(sec) = app.secondary_bible.as_ref() {
-            draw_chapter_pane(f, app, panes[1], sec, true);
+            draw_chapter_pane(f, app, panes[1], sec, true, &theme);
         }
+        apply_divider_style(f, panes[0], panes[1], &app.settings);
     } else {
+        let body = apply_width_cap(rows[1], &app.settings);
         let primary = app.bible.as_ref().unwrap();
-        draw_chapter_pane(f, app, rows[1], primary, false);
+        draw_chapter_pane(f, app, body, primary, false, &theme);
     }
-    draw_bottom_bar(f, app, rows[2]);
+    draw_bottom_bar(f, app, rows[2], &theme);
 }
 
-fn draw_top_bar(f: &mut Frame, app: &App, area: Rect) {
+/// If `settings.reader.max_columns` is set and smaller than the available
+/// width, narrow `area` to the cap and centre it horizontally. Otherwise
+/// returns `area` unchanged.
+fn apply_width_cap(area: Rect, settings: &Settings) -> Rect {
+    let cap = settings.reader.max_columns;
+    if cap == 0 || area.width <= cap {
+        return area;
+    }
+    let extra = area.width - cap;
+    let left = extra / 2;
+    Rect::new(area.x + left, area.y, cap, area.height)
+}
+
+/// Overlay the seam between the two parallel panes per `divider` setting.
+/// `Single` (default) leaves both blocks' touching borders alone — terminals
+/// render that as a thicker `││` line. `Double` overlays `║` and `None`
+/// overlays spaces, both onto the seam columns.
+fn apply_divider_style(f: &mut Frame, left: Rect, right: Rect, settings: &Settings) {
+    let style = settings.parallel.divider;
+    if style == DividerStyle::Single {
+        return;
+    }
+    let (overlay, color) = match style {
+        DividerStyle::Double => ("║", Color::Indexed(244)),
+        DividerStyle::None => (" ", Color::Reset),
+        DividerStyle::Single => unreachable!(),
+    };
+    // Last column of the left pane and first column of the right pane both
+    // carry block borders. Replace both so the seam looks consistent.
+    let seam_x_left = left.x + left.width.saturating_sub(1);
+    let seam_x_right = right.x;
+    let inner_top = left.y + 1;
+    let inner_bottom = left.y + left.height.saturating_sub(1);
+    f.render_widget(
+        SeamOverlay {
+            x: seam_x_left,
+            y_start: inner_top,
+            y_end: inner_bottom,
+            symbol: overlay,
+            color,
+        },
+        left,
+    );
+    f.render_widget(
+        SeamOverlay {
+            x: seam_x_right,
+            y_start: inner_top,
+            y_end: inner_bottom,
+            symbol: overlay,
+            color,
+        },
+        right,
+    );
+}
+
+struct SeamOverlay {
+    x: u16,
+    y_start: u16,
+    y_end: u16,
+    symbol: &'static str,
+    color: Color,
+}
+
+impl Widget for SeamOverlay {
+    fn render(self, _area: Rect, buf: &mut Buffer) {
+        for y in self.y_start..self.y_end {
+            if let Some(cell) = buf.cell_mut((self.x, y)) {
+                cell.set_symbol(self.symbol)
+                    .set_style(Style::default().fg(self.color));
+                cell.set_skip(false);
+            }
+        }
+    }
+}
+
+fn draw_top_bar(f: &mut Frame, app: &App, area: Rect, theme: &ResolvedTheme) {
     let translation = app
         .bible
         .as_ref()
@@ -85,37 +168,22 @@ fn draw_top_bar(f: &mut Frame, app: &App, area: Rect) {
     let line = Line::from(vec![
         Span::styled(
             " bible ",
-            Style::default().bg(Color::Indexed(24)).fg(Color::White).bold(),
+            Style::default().bg(theme.border).fg(Color::White).bold(),
         ),
         Span::raw(" "),
-        Span::styled(translation, Style::default().fg(Color::Cyan).bold()),
+        Span::styled(translation, Style::default().fg(theme.title_book).bold()),
         Span::raw(" │ "),
-        Span::styled(position, Style::default().fg(Color::Yellow)),
+        Span::styled(position, Style::default().fg(theme.title_chapter)),
         Span::raw("   "),
-        Span::styled(
-            "?",
-            Style::default().add_modifier(Modifier::DIM),
-        ),
+        Span::styled("?", Style::default().add_modifier(Modifier::DIM)),
         Span::styled(" help", Style::default().add_modifier(Modifier::DIM)),
         Span::raw("  "),
-        Span::styled(
-            "T",
-            Style::default().add_modifier(Modifier::DIM),
-        ),
-        Span::styled(
-            " translations",
-            Style::default().add_modifier(Modifier::DIM),
-        ),
+        Span::styled("T", Style::default().add_modifier(Modifier::DIM)),
+        Span::styled(" translations", Style::default().add_modifier(Modifier::DIM)),
         Span::raw("  "),
-        Span::styled(
-            "q",
-            Style::default().add_modifier(Modifier::DIM),
-        ),
+        Span::styled("q", Style::default().add_modifier(Modifier::DIM)),
         Span::styled(" quit", Style::default().add_modifier(Modifier::DIM)),
     ]);
-    // Render Line directly (not via Paragraph). Line is a Widget in
-    // ratatui 0.30 and is documented to "always render as a single line",
-    // truncating at the right edge — no chance of consuming extra rows.
     f.render_widget(line, area);
 }
 
@@ -165,33 +233,34 @@ fn draw_chapter_pane(
     area: Rect,
     bible: &crate::bible::Bible,
     is_secondary: bool,
+    theme: &ResolvedTheme,
 ) {
     let Some(cr) = app.current.as_ref() else {
         return;
     };
 
     let border_color = if is_secondary {
-        Color::Magenta
+        theme.secondary_border
     } else {
-        Color::Indexed(24)
+        theme.border
     };
 
     let mut title_spans = vec![Span::raw(" ")];
     if app.parallel || is_secondary {
         title_spans.push(Span::styled(
             bible.translation.id.clone(),
-            Style::default().fg(Color::Magenta).bold(),
+            Style::default().fg(theme.title_translation).bold(),
         ));
         title_spans.push(Span::raw(" │ "));
     }
     title_spans.push(Span::styled(
         book_display(&cr.book()),
-        Style::default().fg(Color::Cyan).bold(),
+        Style::default().fg(theme.title_book).bold(),
     ));
     title_spans.push(Span::raw(" "));
     title_spans.push(Span::styled(
         cr.chapter().to_string(),
-        Style::default().fg(Color::Yellow).bold(),
+        Style::default().fg(theme.title_chapter).bold(),
     ));
     title_spans.push(Span::raw(" "));
 
@@ -218,6 +287,7 @@ fn draw_chapter_pane(
                         prefix_style: Style::default(),
                         content,
                         content_style: Style::default().add_modifier(Modifier::DIM),
+                        settings: &app.settings,
                     },
                     row_area,
                 );
@@ -231,9 +301,12 @@ fn draw_chapter_pane(
     } else {
         highlighted_verse_for(app, cr)
     };
-    let prefix_w: usize = 4; // "{:>3} "
+    let prefix_w: usize = match app.settings.typography.verse_number_style {
+        VerseNumberStyle::InlineBold | VerseNumberStyle::Superscript => 4,
+        VerseNumberStyle::Hidden => 0,
+    };
     let avail = (inner.width as usize).saturating_sub(prefix_w).max(1);
-    let rows = build_rows(chapter, avail, highlight_verse);
+    let rows = build_rows(chapter, avail, highlight_verse, &app.settings);
 
     // Single-pane reads `app.scroll` (line offset). Parallel mode reads
     // `app.verse_anchor` and finds each pane's own row index for that verse,
@@ -247,22 +320,14 @@ fn draw_chapter_pane(
     let visible = inner.height as usize;
     for (row_idx, row) in rows.iter().skip(start).take(visible).enumerate() {
         let row_area = Rect::new(inner.x, inner.y + row_idx as u16, inner.width, 1);
-        let num_style = if row.highlighted {
-            Style::default().fg(Color::Black).bg(Color::Yellow).bold()
-        } else {
-            Style::default().fg(Color::Indexed(244))
-        };
-        let text_style = if row.highlighted {
-            Style::default().bold()
-        } else {
-            Style::default()
-        };
+        let (num_style, text_style) = row_styles(row, theme);
         f.render_widget(
             ChapterRow {
                 prefix: &row.prefix,
                 prefix_style: num_style,
                 content: &row.content,
                 content_style: text_style,
+                settings: &app.settings,
             },
             row_area,
         );
@@ -278,10 +343,32 @@ fn draw_chapter_pane(
                 prefix_style: Style::default(),
                 content: "",
                 content_style: Style::default(),
+                settings: &app.settings,
             },
             row_area,
         );
     }
+}
+
+fn row_styles(row: &Row, theme: &ResolvedTheme) -> (Style, Style) {
+    let num_style = if row.highlighted {
+        Style::default()
+            .fg(theme.current_verse_fg)
+            .bg(theme.current_verse_bg)
+            .bold()
+    } else if row.is_super_prefix {
+        Style::default()
+            .fg(theme.verse_number_super)
+            .add_modifier(Modifier::DIM)
+    } else {
+        Style::default().fg(theme.verse_number)
+    };
+    let text_style = if row.highlighted {
+        Style::default().bold()
+    } else {
+        Style::default()
+    };
+    (num_style, text_style)
 }
 
 /// Custom row renderer for the chapter content. Bypasses Line/Paragraph and
@@ -297,14 +384,12 @@ fn draw_chapter_pane(
 ///    content grapheme cluster with a display width that gives complex
 ///    scripts (Tamil, Devanagari, Arabic …) a 2-cell minimum so the
 ///    terminal's glyph rendering doesn't overlap into the next character.
-///
-/// Untouched cells past the content stay as the explicit space we wrote in
-/// step 1, so trailing artifacts can't survive.
 struct ChapterRow<'a> {
     prefix: &'a str,
     prefix_style: Style,
     content: &'a str,
     content_style: Style,
+    settings: &'a Settings,
 }
 
 impl Widget for ChapterRow<'_> {
@@ -320,8 +405,8 @@ impl Widget for ChapterRow<'_> {
                 cell.set_skip(false);
             }
         }
-        // Prefix is always ASCII (verse numbers + spaces), so a plain
-        // set_string is fine.
+        // Prefix is always ASCII or Unicode-superscript digits, both
+        // narrow — set_string measures correctly for advancing.
         buf.set_string(area.x, y, self.prefix, self.prefix_style);
         let prefix_w = UnicodeWidthStr::width(self.prefix) as u16;
         if prefix_w < area.width && !self.content.is_empty() {
@@ -332,6 +417,7 @@ impl Widget for ChapterRow<'_> {
                 area.right(),
                 self.content,
                 self.content_style,
+                self.settings,
             );
         }
     }
@@ -341,9 +427,17 @@ impl Widget for ChapterRow<'_> {
 /// by `display_width()` columns per grapheme. Trailing cells of multi-cell
 /// graphemes get `set_skip(true)` so the diff renderer doesn't emit a write
 /// for them and the terminal can render the glyph across both cells.
-fn write_graphemes(buf: &mut Buffer, mut x: u16, y: u16, x_end: u16, text: &str, style: Style) {
+fn write_graphemes(
+    buf: &mut Buffer,
+    mut x: u16,
+    y: u16,
+    x_end: u16,
+    text: &str,
+    style: Style,
+    settings: &Settings,
+) {
     for g in UnicodeSegmentation::graphemes(text, true) {
-        let w = display_width(g) as u16;
+        let w = display_width(g, settings) as u16;
         if w == 0 {
             continue;
         }
@@ -378,10 +472,12 @@ fn write_graphemes(buf: &mut Buffer, mut x: u16, y: u16, x_end: u16, text: &str,
 ///   Tamil letters (`ஆ`), narrow-vowel combinations (`தி` where `ி`
 ///   sits above the base), CJK already-wide letters (no-op), Latin
 ///   diacritics, etc.
+/// - Plus an optional per-script bump from settings, for users whose
+///   fonts still don't separate the glyphs cleanly.
 ///
-/// Trade-off: if the font *is* narrow, we leave a visible gap; if it's
-/// wide, spacing is correct. Either way, no overlap.
-fn display_width(g: &str) -> usize {
+/// Superscript digits (used as verse numbers when that style is on) are
+/// whitelisted to their raw 1-cell width so the prefix aligns.
+fn display_width(g: &str, settings: &Settings) -> usize {
     let raw = UnicodeWidthStr::width(g);
     if raw == 0 {
         return 0;
@@ -389,10 +485,72 @@ fn display_width(g: &str) -> usize {
     if g.bytes().all(|b| b < 0x80) {
         return raw;
     }
-    if g.chars().any(is_wide_extending_mark) {
-        return raw.max(3);
+    if g.chars().all(is_super_digit) {
+        return raw;
     }
-    raw.max(2)
+    let base = if g.chars().any(is_wide_extending_mark) {
+        raw.max(3)
+    } else {
+        raw.max(2)
+    };
+    base + script_padding_cells(g, &settings.typography.script_letter_padding) as usize
+}
+
+fn is_super_digit(c: char) -> bool {
+    matches!(c,
+        '\u{2070}'              // ⁰
+        | '\u{00B9}'            // ¹
+        | '\u{00B2}'            // ²
+        | '\u{00B3}'            // ³
+        | '\u{2074}'..='\u{2079}'   // ⁴-⁹
+    )
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Script {
+    Latin,
+    Tamil,
+    Devanagari,
+    Arabic,
+    Hebrew,
+    Cjk,
+    Other,
+}
+
+/// Detect the dominant script of a grapheme cluster from its first
+/// non-combining char. Combining marks attach to the base letter, so the
+/// base char is what determines per-script padding.
+fn grapheme_script(g: &str) -> Script {
+    for c in g.chars() {
+        // Skip combining marks — let the base letter decide.
+        if matches!(c, '\u{0300}'..='\u{036F}') {
+            continue;
+        }
+        return match c {
+            c if c.is_ascii() => Script::Latin,
+            '\u{0B80}'..='\u{0BFF}' => Script::Tamil,
+            '\u{0900}'..='\u{097F}' => Script::Devanagari,
+            '\u{0600}'..='\u{06FF}' | '\u{0750}'..='\u{077F}' => Script::Arabic,
+            '\u{0590}'..='\u{05FF}' => Script::Hebrew,
+            '\u{4E00}'..='\u{9FFF}'
+            | '\u{3040}'..='\u{30FF}'
+            | '\u{AC00}'..='\u{D7AF}' => Script::Cjk,
+            _ => Script::Other,
+        };
+    }
+    Script::Other
+}
+
+fn script_padding_cells(g: &str, p: &ScriptPadding) -> u8 {
+    match grapheme_script(g) {
+        Script::Latin => 0,
+        Script::Tamil => p.tamil,
+        Script::Devanagari => p.devanagari,
+        Script::Arabic => p.arabic,
+        Script::Hebrew => p.hebrew,
+        Script::Cjk => p.cjk,
+        Script::Other => p.default,
+    }
 }
 
 /// True for combining marks that visually *extend* horizontally beyond the
@@ -420,6 +578,8 @@ struct Row {
     /// Verse number this row belongs to. `None` for blank/spacer rows. Used
     /// by parallel view to align both panes by verse.
     verse: Option<u16>,
+    /// The prefix is rendered as superscript digits — used to dim it.
+    is_super_prefix: bool,
 }
 
 impl Row {
@@ -429,6 +589,7 @@ impl Row {
             prefix: String::new(),
             content: String::new(),
             verse: None,
+            is_super_prefix: false,
         }
     }
 }
@@ -439,32 +600,88 @@ fn build_rows(
     chapter: &crate::bible::Chapter,
     avail: usize,
     highlight_verse: Option<u16>,
+    settings: &Settings,
 ) -> Vec<Row> {
+    let style = settings.typography.verse_number_style;
+    let verse_spacing = settings.typography.verse_spacing as usize;
+    let line_spacing = settings.typography.line_spacing as usize;
+
     let mut rows: Vec<Row> = Vec::new();
     rows.push(Row::blank());
-    for verse in &chapter.verses {
+    let last_idx = chapter.verses.len().saturating_sub(1);
+    for (vi, verse) in chapter.verses.iter().enumerate() {
         let highlighted = Some(verse.number) == highlight_verse;
-        let wrapped = wrap_to_width(&verse.text, avail);
+        let wrapped = wrap_to_width(&verse.text, avail, settings);
         let pieces = if wrapped.is_empty() {
             vec![String::new()]
         } else {
             wrapped
         };
+        let last_piece_idx = pieces.len().saturating_sub(1);
         for (i, content) in pieces.into_iter().enumerate() {
-            let prefix = if i == 0 {
-                format!("{:>3} ", verse.number)
-            } else {
-                "    ".to_string()
-            };
+            let prefix = format_verse_prefix(verse.number, style, i != 0);
+            let is_super_prefix =
+                style == VerseNumberStyle::Superscript && i == 0;
             rows.push(Row {
                 highlighted,
                 prefix,
                 content,
                 verse: Some(verse.number),
+                is_super_prefix,
             });
+            if line_spacing > 0 && i < last_piece_idx {
+                for _ in 0..line_spacing {
+                    rows.push(Row::blank());
+                }
+            }
+        }
+        if verse_spacing > 0 && vi < last_idx {
+            for _ in 0..verse_spacing {
+                rows.push(Row::blank());
+            }
         }
     }
     rows
+}
+
+fn format_verse_prefix(n: u16, style: VerseNumberStyle, continuation: bool) -> String {
+    match style {
+        VerseNumberStyle::Hidden => String::new(),
+        VerseNumberStyle::InlineBold => {
+            if continuation {
+                "    ".to_string()
+            } else {
+                format!("{:>3} ", n)
+            }
+        }
+        VerseNumberStyle::Superscript => {
+            if continuation {
+                "    ".to_string()
+            } else {
+                let s = to_super_digits(n);
+                format!("{:>3} ", s)
+            }
+        }
+    }
+}
+
+fn to_super_digits(n: u16) -> String {
+    n.to_string()
+        .chars()
+        .map(|c| match c {
+            '0' => '\u{2070}',
+            '1' => '\u{00B9}',
+            '2' => '\u{00B2}',
+            '3' => '\u{00B3}',
+            '4' => '\u{2074}',
+            '5' => '\u{2075}',
+            '6' => '\u{2076}',
+            '7' => '\u{2077}',
+            '8' => '\u{2078}',
+            '9' => '\u{2079}',
+            c => c,
+        })
+        .collect()
 }
 
 /// Find the first row in `rows` whose verse number is `>= target`. Used to
@@ -484,23 +701,26 @@ fn first_row_for_verse(rows: &[Row], target: u16) -> usize {
 /// Word-wrap `text` to lines whose display width does not exceed `max_width`,
 /// using the same `display_width` function that `write_graphemes` uses at
 /// render time. Words longer than `max_width` are broken grapheme-by-
-/// grapheme.
-fn wrap_to_width(text: &str, max_width: usize) -> Vec<String> {
+/// grapheme. `word_padding` extends the inter-word gap.
+fn wrap_to_width(text: &str, max_width: usize, settings: &Settings) -> Vec<String> {
     if max_width == 0 {
         return vec![text.to_string()];
     }
+    let gap_width: usize = 1 + settings.typography.word_padding as usize;
+    let gap_str: String = " ".repeat(gap_width);
+
     let mut lines: Vec<String> = Vec::new();
     let mut cur = String::new();
     let mut cur_w: usize = 0;
 
     for word in text.split_whitespace() {
         let word_w: usize = UnicodeSegmentation::graphemes(word, true)
-            .map(display_width)
+            .map(|g| display_width(g, settings))
             .sum();
         let needed = if cur.is_empty() {
             word_w
         } else {
-            cur_w + 1 + word_w
+            cur_w + gap_width + word_w
         };
         if needed > max_width && !cur.is_empty() {
             lines.push(std::mem::take(&mut cur));
@@ -514,7 +734,7 @@ fn wrap_to_width(text: &str, max_width: usize) -> Vec<String> {
                 cur_w = 0;
             }
             for g in UnicodeSegmentation::graphemes(word, true) {
-                let gw = display_width(g);
+                let gw = display_width(g, settings);
                 if cur_w + gw > max_width && !cur.is_empty() {
                     lines.push(std::mem::take(&mut cur));
                     cur_w = 0;
@@ -525,8 +745,8 @@ fn wrap_to_width(text: &str, max_width: usize) -> Vec<String> {
             continue;
         }
         if !cur.is_empty() {
-            cur.push(' ');
-            cur_w += 1;
+            cur.push_str(&gap_str);
+            cur_w += gap_width;
         }
         cur.push_str(word);
         cur_w += word_w;
@@ -557,9 +777,7 @@ fn highlighted_verse_for(
     u16::try_from(v).ok()
 }
 
-fn draw_bottom_bar(f: &mut Frame, app: &App, area: Rect) {
-    // Active search overrides the normal status display so the spinner is
-    // always visible while a worker is scanning.
+fn draw_bottom_bar(f: &mut Frame, app: &App, area: Rect, theme: &ResolvedTheme) {
     if let Some(s) = app.searching.as_ref() {
         let frame = SPINNER_FRAMES[s.spinner % SPINNER_FRAMES.len()];
         let elapsed = s.started_at.elapsed().as_millis();
@@ -567,12 +785,12 @@ fn draw_bottom_bar(f: &mut Frame, app: &App, area: Rect) {
             Span::raw(" "),
             Span::styled(
                 frame.to_string(),
-                Style::default().fg(Color::Yellow).bold(),
+                Style::default().fg(theme.title_chapter).bold(),
             ),
             Span::raw(" searching for "),
             Span::styled(
                 format!("`{}`", sanitize_one_line(&s.query)),
-                Style::default().fg(Color::Magenta).bold(),
+                Style::default().fg(theme.title_translation).bold(),
             ),
             Span::raw("  "),
             Span::styled(
@@ -586,34 +804,29 @@ fn draw_bottom_bar(f: &mut Frame, app: &App, area: Rect) {
 
     let line = match app.mode {
         Mode::Jump => Line::from(vec![
-            Span::styled(":", Style::default().fg(Color::Cyan).bold()),
+            Span::styled(":", Style::default().fg(theme.title_book).bold()),
             Span::raw(sanitize_one_line(app.input.value())),
-            Span::styled("│", Style::default().fg(Color::Cyan)),
+            Span::styled("│", Style::default().fg(theme.title_book)),
         ]),
         Mode::Search => Line::from(vec![
-            Span::styled("/", Style::default().fg(Color::Magenta).bold()),
+            Span::styled("/", Style::default().fg(theme.title_translation).bold()),
             Span::raw(sanitize_one_line(app.input.value())),
-            Span::styled("│", Style::default().fg(Color::Magenta)),
+            Span::styled("│", Style::default().fg(theme.title_translation)),
         ]),
         _ => {
             if !app.status.is_empty() {
                 Line::from(Span::styled(
                     sanitize_one_line(&app.status),
-                    Style::default().fg(Color::Indexed(244)),
+                    Style::default().fg(theme.status_bar_dim),
                 ))
             } else {
                 Line::from(Span::styled(
-                    " :ref  /search  hjkl move  q quit  ? help ",
+                    " :ref  /search  hjkl move  , settings  q quit  ? help ",
                     Style::default().add_modifier(Modifier::DIM),
                 ))
             }
         }
     };
-    // Render Line directly. Line implements Widget and is documented to
-    // always render as one row, clipping (not wrapping) at the right edge,
-    // and to strip newlines on construction — so the bottom bar is
-    // structurally guaranteed to occupy exactly `area.height` (= 1) rows
-    // regardless of what's in the status string.
     f.render_widget(line, area);
 }
 
@@ -802,7 +1015,7 @@ fn draw_bookmarks(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_help_overlay(f: &mut Frame, area: Rect) {
-    let popup = centered_rect(60, 60, area);
+    let popup = centered_rect(60, 70, area);
     f.render_widget(Clear, popup);
     let block = Block::default()
         .title(" Help ")
@@ -837,6 +1050,7 @@ fn draw_help_overlay(f: &mut Frame, area: Rect) {
         Line::from("  \\              swap the parallel-view secondary translation"),
         Line::from(""),
         Line::from(Span::styled("Misc", Style::default().bold().fg(Color::Yellow))),
+        Line::from("  ,              settings (typography, theme, width, divider)"),
         Line::from("  ?              this help (Esc to close)"),
         Line::from("  q              quit"),
     ];
@@ -959,4 +1173,469 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
             Constraint::Percentage((100 - percent_x) / 2),
         ])
         .split(popup_layout[1])[1]
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Theme resolution
+// ─────────────────────────────────────────────────────────────────────────
+
+pub(super) struct ResolvedTheme {
+    pub border: Color,
+    pub secondary_border: Color,
+    pub title_translation: Color,
+    pub title_book: Color,
+    pub title_chapter: Color,
+    pub verse_number: Color,
+    pub verse_number_super: Color,
+    pub current_verse_fg: Color,
+    pub current_verse_bg: Color,
+    pub status_bar_dim: Color,
+}
+
+fn resolve_theme(s: &Settings) -> ResolvedTheme {
+    match s.theme.preset {
+        ThemePreset::Default => ResolvedTheme {
+            border: Color::Indexed(24),
+            secondary_border: Color::Magenta,
+            title_translation: Color::Magenta,
+            title_book: Color::Cyan,
+            title_chapter: Color::Yellow,
+            verse_number: Color::Indexed(244),
+            verse_number_super: Color::Indexed(244),
+            current_verse_fg: Color::Black,
+            current_verse_bg: Color::Yellow,
+            status_bar_dim: Color::Indexed(244),
+        },
+        // Solarized Dark accent palette — base16 yellow/magenta/cyan/blue.
+        ThemePreset::SolarizedDark => ResolvedTheme {
+            border: Color::Indexed(33),     // blue
+            secondary_border: Color::Indexed(125), // magenta
+            title_translation: Color::Indexed(125),
+            title_book: Color::Indexed(37), // cyan
+            title_chapter: Color::Indexed(136), // yellow
+            verse_number: Color::Indexed(243), // base01
+            verse_number_super: Color::Indexed(243),
+            current_verse_fg: Color::Indexed(235), // base02
+            current_verse_bg: Color::Indexed(136),
+            status_bar_dim: Color::Indexed(243),
+        },
+        ThemePreset::HighContrast => ResolvedTheme {
+            border: Color::White,
+            secondary_border: Color::White,
+            title_translation: Color::White,
+            title_book: Color::White,
+            title_chapter: Color::White,
+            verse_number: Color::White,
+            verse_number_super: Color::Gray,
+            current_verse_fg: Color::Black,
+            current_verse_bg: Color::White,
+            status_bar_dim: Color::Gray,
+        },
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Settings modal
+// ─────────────────────────────────────────────────────────────────────────
+
+fn draw_settings(f: &mut Frame, app: &App, area: Rect) {
+    let theme = resolve_theme(&app.settings);
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Min(0),
+            Constraint::Length(1),
+        ])
+        .split(area);
+
+    draw_top_bar(f, app, rows[0], &theme);
+
+    // 60/40 split: live-preview pane on the left, settings list on the right.
+    let panes = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
+        .split(rows[1]);
+
+    if let Some(b) = app.bible.as_ref() {
+        draw_chapter_pane(f, app, panes[0], b, false, &theme);
+    } else {
+        draw_welcome(f, panes[0]);
+    }
+    draw_settings_panel(f, app, panes[1]);
+
+    let hint = Line::from(Span::styled(
+        " jk move  hl change  Esc save & close ",
+        Style::default().add_modifier(Modifier::DIM),
+    ));
+    f.render_widget(hint, rows[2]);
+}
+
+fn draw_settings_panel(f: &mut Frame, app: &App, area: Rect) {
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Indexed(33)))
+        .title(Line::from(vec![
+            Span::raw(" "),
+            Span::styled("Settings", Style::default().fg(Color::Indexed(33)).bold()),
+            Span::raw(" "),
+        ]));
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    let layout = settings_layout();
+    // Map cursor index (in items only) to the row in the layout list.
+    let mut cursor_layout_row = 0usize;
+    let mut item_seen = 0usize;
+    for (i, row) in layout.iter().enumerate() {
+        if matches!(row, SettingsRow::Item(_)) {
+            if item_seen == app.settings_cursor {
+                cursor_layout_row = i;
+                break;
+            }
+            item_seen += 1;
+        }
+    }
+
+    let lines: Vec<Line> = layout
+        .iter()
+        .enumerate()
+        .map(|(i, row)| match row {
+            SettingsRow::Header(h) => Line::from(vec![
+                Span::raw(" "),
+                Span::styled(
+                    h.to_string(),
+                    Style::default()
+                        .fg(Color::Indexed(33))
+                        .bold()
+                        .add_modifier(Modifier::UNDERLINED),
+                ),
+            ]),
+            SettingsRow::Item(it) => {
+                let selected = i == cursor_layout_row;
+                let label = it.label();
+                let value = it.value(&app.settings);
+                let row_style = if selected {
+                    Style::default().bg(Color::Indexed(236))
+                } else {
+                    Style::default()
+                };
+                let label_style = if selected {
+                    Style::default().fg(Color::White).bold()
+                } else {
+                    Style::default()
+                };
+                let value_style = if selected {
+                    Style::default().fg(Color::Yellow).bold()
+                } else {
+                    Style::default().fg(Color::Cyan)
+                };
+                let arrows = if selected { "‹  ›" } else { "    " };
+                Line::from(vec![
+                    Span::styled("  ", row_style),
+                    Span::styled(format!("{:<22}", label), label_style.patch(row_style)),
+                    Span::styled(value, value_style.patch(row_style)),
+                    Span::raw("  "),
+                    Span::styled(
+                        arrows.to_string(),
+                        Style::default()
+                            .add_modifier(Modifier::DIM)
+                            .patch(row_style),
+                    ),
+                ])
+                .style(row_style)
+            }
+        })
+        .collect();
+    // No wrap — long values are truncated cleanly at the right edge so the
+    // value-column alignment is preserved.
+    f.render_widget(Paragraph::new(lines), inner);
+}
+
+#[derive(Debug, Clone, Copy)]
+enum SettingsRow {
+    Header(&'static str),
+    Item(SettingItem),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum SettingItem {
+    WordPadding,
+    VerseSpacing,
+    LineSpacing,
+    VerseNumberStyle,
+    PaddingDefault,
+    PaddingTamil,
+    PaddingDevanagari,
+    PaddingArabic,
+    PaddingHebrew,
+    PaddingCjk,
+    ThemePreset,
+    MaxColumns,
+    DefaultTranslation,
+    ParallelDivider,
+}
+
+const fn settings_layout() -> &'static [SettingsRow] {
+    &[
+        SettingsRow::Header("Typography"),
+        SettingsRow::Item(SettingItem::WordPadding),
+        SettingsRow::Item(SettingItem::VerseSpacing),
+        SettingsRow::Item(SettingItem::LineSpacing),
+        SettingsRow::Item(SettingItem::VerseNumberStyle),
+        SettingsRow::Header("Letter padding (per script)"),
+        SettingsRow::Item(SettingItem::PaddingDefault),
+        SettingsRow::Item(SettingItem::PaddingTamil),
+        SettingsRow::Item(SettingItem::PaddingDevanagari),
+        SettingsRow::Item(SettingItem::PaddingArabic),
+        SettingsRow::Item(SettingItem::PaddingHebrew),
+        SettingsRow::Item(SettingItem::PaddingCjk),
+        SettingsRow::Header("Theme"),
+        SettingsRow::Item(SettingItem::ThemePreset),
+        SettingsRow::Header("Reader"),
+        SettingsRow::Item(SettingItem::MaxColumns),
+        SettingsRow::Item(SettingItem::DefaultTranslation),
+        SettingsRow::Header("Parallel"),
+        SettingsRow::Item(SettingItem::ParallelDivider),
+    ]
+}
+
+pub(super) const SETTINGS_ITEMS: &[SettingItem] = &[
+    SettingItem::WordPadding,
+    SettingItem::VerseSpacing,
+    SettingItem::LineSpacing,
+    SettingItem::VerseNumberStyle,
+    SettingItem::PaddingDefault,
+    SettingItem::PaddingTamil,
+    SettingItem::PaddingDevanagari,
+    SettingItem::PaddingArabic,
+    SettingItem::PaddingHebrew,
+    SettingItem::PaddingCjk,
+    SettingItem::ThemePreset,
+    SettingItem::MaxColumns,
+    SettingItem::DefaultTranslation,
+    SettingItem::ParallelDivider,
+];
+
+impl SettingItem {
+    fn label(&self) -> &'static str {
+        match self {
+            SettingItem::WordPadding => "Word padding",
+            SettingItem::VerseSpacing => "Verse spacing",
+            SettingItem::LineSpacing => "Line spacing",
+            SettingItem::VerseNumberStyle => "Verse numbers",
+            SettingItem::PaddingDefault => "  default",
+            SettingItem::PaddingTamil => "  Tamil",
+            SettingItem::PaddingDevanagari => "  Devanagari",
+            SettingItem::PaddingArabic => "  Arabic",
+            SettingItem::PaddingHebrew => "  Hebrew",
+            SettingItem::PaddingCjk => "  CJK",
+            SettingItem::ThemePreset => "Preset",
+            SettingItem::MaxColumns => "Max columns",
+            SettingItem::DefaultTranslation => "Default translation",
+            SettingItem::ParallelDivider => "Divider",
+        }
+    }
+
+    fn value(&self, s: &Settings) -> String {
+        match self {
+            SettingItem::WordPadding => format!("+{}", s.typography.word_padding),
+            SettingItem::VerseSpacing => format!("{} line(s)", s.typography.verse_spacing),
+            SettingItem::LineSpacing => format!("{} line(s)", s.typography.line_spacing),
+            SettingItem::VerseNumberStyle => match s.typography.verse_number_style {
+                VerseNumberStyle::InlineBold => "inline-bold".to_string(),
+                VerseNumberStyle::Superscript => "superscript".to_string(),
+                VerseNumberStyle::Hidden => "hidden".to_string(),
+            },
+            SettingItem::PaddingDefault => {
+                format!("+{}", s.typography.script_letter_padding.default)
+            }
+            SettingItem::PaddingTamil => {
+                format!("+{}", s.typography.script_letter_padding.tamil)
+            }
+            SettingItem::PaddingDevanagari => {
+                format!("+{}", s.typography.script_letter_padding.devanagari)
+            }
+            SettingItem::PaddingArabic => {
+                format!("+{}", s.typography.script_letter_padding.arabic)
+            }
+            SettingItem::PaddingHebrew => {
+                format!("+{}", s.typography.script_letter_padding.hebrew)
+            }
+            SettingItem::PaddingCjk => {
+                format!("+{}", s.typography.script_letter_padding.cjk)
+            }
+            SettingItem::ThemePreset => match s.theme.preset {
+                ThemePreset::Default => "default".to_string(),
+                ThemePreset::SolarizedDark => "solarized-dark".to_string(),
+                ThemePreset::HighContrast => "high-contrast".to_string(),
+            },
+            SettingItem::MaxColumns => match s.reader.max_columns {
+                0 => "no cap".to_string(),
+                n => n.to_string(),
+            },
+            SettingItem::DefaultTranslation => {
+                if s.reader.default_translation.is_empty() {
+                    "(first installed)".to_string()
+                } else {
+                    s.reader.default_translation.clone()
+                }
+            }
+            SettingItem::ParallelDivider => match s.parallel.divider {
+                DividerStyle::Single => "single".to_string(),
+                DividerStyle::Double => "double".to_string(),
+                DividerStyle::None => "none".to_string(),
+            },
+        }
+    }
+
+    pub(super) fn next(&self, app: &mut App) {
+        self.shift(app, 1);
+    }
+
+    pub(super) fn prev(&self, app: &mut App) {
+        self.shift(app, -1);
+    }
+
+    fn shift(&self, app: &mut App, dir: i32) {
+        // Explicit scope: the &mut borrow of app.settings must end before
+        // the post-match block (which reads app.installed alongside writing
+        // app.settings.reader.default_translation).
+        {
+        let s = &mut app.settings;
+        match self {
+            SettingItem::WordPadding => {
+                s.typography.word_padding = clamp_u8(s.typography.word_padding, dir, 0, 3);
+            }
+            SettingItem::VerseSpacing => {
+                s.typography.verse_spacing = clamp_u8(s.typography.verse_spacing, dir, 0, 2);
+            }
+            SettingItem::LineSpacing => {
+                s.typography.line_spacing = clamp_u8(s.typography.line_spacing, dir, 0, 1);
+            }
+            SettingItem::VerseNumberStyle => {
+                s.typography.verse_number_style = cycle_verse_style(
+                    s.typography.verse_number_style,
+                    dir,
+                );
+            }
+            SettingItem::PaddingDefault => {
+                s.typography.script_letter_padding.default =
+                    clamp_u8(s.typography.script_letter_padding.default, dir, 0, 3);
+            }
+            SettingItem::PaddingTamil => {
+                s.typography.script_letter_padding.tamil =
+                    clamp_u8(s.typography.script_letter_padding.tamil, dir, 0, 3);
+            }
+            SettingItem::PaddingDevanagari => {
+                s.typography.script_letter_padding.devanagari =
+                    clamp_u8(s.typography.script_letter_padding.devanagari, dir, 0, 3);
+            }
+            SettingItem::PaddingArabic => {
+                s.typography.script_letter_padding.arabic =
+                    clamp_u8(s.typography.script_letter_padding.arabic, dir, 0, 3);
+            }
+            SettingItem::PaddingHebrew => {
+                s.typography.script_letter_padding.hebrew =
+                    clamp_u8(s.typography.script_letter_padding.hebrew, dir, 0, 3);
+            }
+            SettingItem::PaddingCjk => {
+                s.typography.script_letter_padding.cjk =
+                    clamp_u8(s.typography.script_letter_padding.cjk, dir, 0, 3);
+            }
+            SettingItem::ThemePreset => {
+                s.theme.preset = cycle_theme(s.theme.preset, dir);
+            }
+            SettingItem::MaxColumns => {
+                s.reader.max_columns = step_max_columns(s.reader.max_columns, dir);
+            }
+            SettingItem::ParallelDivider => {
+                s.parallel.divider = cycle_divider(s.parallel.divider, dir);
+            }
+            // Computed below after the &mut borrow on settings ends.
+            SettingItem::DefaultTranslation => {}
+        }
+        }
+        // DefaultTranslation needs to read app.installed alongside the
+        // settings write — handle it here, after the `s` borrow has ended.
+        if matches!(self, SettingItem::DefaultTranslation) {
+            let cur = app.settings.reader.default_translation.clone();
+            app.settings.reader.default_translation =
+                cycle_default_translation(&cur, &app.installed, dir);
+        }
+    }
+}
+
+fn clamp_u8(v: u8, dir: i32, min: u8, max: u8) -> u8 {
+    let next = v as i32 + dir;
+    next.clamp(min as i32, max as i32) as u8
+}
+
+fn step_max_columns(v: u16, dir: i32) -> u16 {
+    // Step in 5-column increments. Below 40 → "no cap" (0). Cap at 200.
+    if dir < 0 {
+        if v == 0 {
+            return 0;
+        }
+        let next = v.saturating_sub(5);
+        if next < 40 { 0 } else { next }
+    } else {
+        if v == 0 {
+            return 60;
+        }
+        (v + 5).min(200)
+    }
+}
+
+fn cycle_verse_style(v: VerseNumberStyle, dir: i32) -> VerseNumberStyle {
+    let order = [
+        VerseNumberStyle::InlineBold,
+        VerseNumberStyle::Superscript,
+        VerseNumberStyle::Hidden,
+    ];
+    cycle_in(&order, v, dir)
+}
+
+fn cycle_theme(v: ThemePreset, dir: i32) -> ThemePreset {
+    let order = [
+        ThemePreset::Default,
+        ThemePreset::SolarizedDark,
+        ThemePreset::HighContrast,
+    ];
+    cycle_in(&order, v, dir)
+}
+
+fn cycle_divider(v: DividerStyle, dir: i32) -> DividerStyle {
+    let order = [DividerStyle::Single, DividerStyle::Double, DividerStyle::None];
+    cycle_in(&order, v, dir)
+}
+
+fn cycle_in<T: Copy + PartialEq>(order: &[T], v: T, dir: i32) -> T {
+    let n = order.len() as i32;
+    let pos = order.iter().position(|x| *x == v).unwrap_or(0) as i32;
+    let next = (((pos + dir) % n) + n) % n;
+    order[next as usize]
+}
+
+fn cycle_default_translation(
+    cur: &str,
+    installed: &[crate::bible::TranslationInfo],
+    dir: i32,
+) -> String {
+    if installed.is_empty() {
+        return String::new();
+    }
+    // States: "" (first installed) → installed[0].id → ... → installed[n-1].id → "" → ...
+    let mut states: Vec<String> = Vec::with_capacity(installed.len() + 1);
+    states.push(String::new());
+    for t in installed {
+        states.push(t.id.clone());
+    }
+    let pos = states
+        .iter()
+        .position(|s| s == cur)
+        .unwrap_or(0) as i32;
+    let n = states.len() as i32;
+    let next = (((pos + dir) % n) + n) % n;
+    states[next as usize].clone()
 }

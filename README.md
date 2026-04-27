@@ -45,6 +45,7 @@ bible install kjv
 | `B`            | open the bookmarks list                                           |
 | `\|`           | toggle parallel view (opens chooser if no secondary picked)       |
 | `\`            | re-open the secondary-translation chooser to swap                 |
+| `,`            | open Settings (typography, theme, width cap, parallel divider)    |
 | `?`            | help overlay                                                      |
 | `q`            | quit                                                              |
 
@@ -75,6 +76,33 @@ bible install kjv
 | `r`       | refresh catalog from GitHub       |
 | any text  | filter (id / name / language)     |
 | `Esc`     | back to Reader                    |
+
+### Settings (`,`)
+
+A live-preview modal: the chapter pane stays visible on the left while you
+adjust settings on the right.
+
+| Key                     | Action                                |
+| ----------------------- | ------------------------------------- |
+| `j` / `k`               | move selection                        |
+| `h` / `l` (or `←` / `→`)| decrement / increment value           |
+| `Enter`                 | same as `l` (increment / cycle)       |
+| `Esc` / `q`             | save and close                        |
+
+What's tunable:
+
+- **Typography** — word padding, verse spacing, line spacing, verse-number
+  style (`inline-bold` / `superscript` / `hidden`).
+- **Letter padding (per script)** — extra cells around each grapheme for
+  Tamil, Devanagari, Arabic, Hebrew, CJK, plus a `default` for any other
+  non-Latin script. Workaround for terminal fonts that overlap glyphs.
+- **Theme** — `default`, `solarized-dark`, `high-contrast`.
+- **Reader** — max-columns cap (centres the pane on wide terminals), default
+  translation on startup.
+- **Parallel** — divider style between panes (`single` / `double` / `none`).
+
+Settings are saved to `<config_dir>/settings.toml` on close. The file is
+human-editable TOML and schema-versioned.
 
 ### Resume
 
@@ -140,10 +168,12 @@ config:
 | --------------------------------- | ------------------------------------------ |
 | `<config>/state.toml`             | last reading position + parallel-view pair |
 | `<config>/bookmarks.toml`         | your bookmarks (chapter or verse + note)   |
+| `<config>/settings.toml`          | typography, theme, width cap, divider      |
 | `<config>/manifest.json`          | cached catalog from `bible refresh`        |
 
-Both `state.toml` and `bookmarks.toml` are human-editable TOML and are
-schema-versioned: on a version mismatch the file is ignored (not clobbered).
+`state.toml`, `bookmarks.toml`, and `settings.toml` are all human-editable
+TOML and are schema-versioned: on a version mismatch the file is ignored
+(defaults are used; the file is never clobbered).
 
 ## Limitations
 

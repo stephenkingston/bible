@@ -63,6 +63,7 @@ pub(crate) enum Mode {
     Manager,
     Bookmarks,
     PickSecondary,
+    Settings,
     Help,
     NoTranslation,
     Quit,
@@ -115,6 +116,11 @@ pub(crate) struct App {
 
     pub bookmarks: Vec<crate::bookmarks::Bookmark>,
     pub bookmarks_cursor: usize,
+
+    /// User preferences — typography, theme, reader width, parallel divider.
+    /// Mutated live by the Settings modal; flushed to disk on close.
+    pub settings: crate::settings::Settings,
+    pub settings_cursor: usize,
 
     /// Parallel-view state. `parallel` is on iff both this is true *and*
     /// `secondary_bible` is loaded. `verse_anchor` is the topmost-visible
@@ -264,6 +270,8 @@ impl App {
             manager_cursor: 0,
             bookmarks: crate::bookmarks::load(),
             bookmarks_cursor: 0,
+            settings: crate::settings::load(),
+            settings_cursor: 0,
             parallel: false,
             secondary_bible: None,
             secondary_id: None,
@@ -295,13 +303,21 @@ impl App {
         // Resolution order:
         //   1. Explicit `--translation <id>` argument.
         //   2. Last position from saved state, if its translation is still installed.
-        //   3. First installed translation alphabetically.
+        //   3. `settings.reader.default_translation`, if set and installed.
+        //   4. First installed translation alphabetically.
         let id = if let Some(req) = requested {
             manifest::resolve_id(&req).unwrap_or_else(|_| self.installed[0].id.clone())
         } else if let Some(p) = saved_position {
             p.translation.clone()
         } else {
-            self.installed[0].id.clone()
+            let default_id = self.settings.reader.default_translation.trim();
+            if !default_id.is_empty()
+                && self.installed.iter().any(|t| t.id == default_id)
+            {
+                default_id.to_string()
+            } else {
+                self.installed[0].id.clone()
+            }
         };
 
         self.load_translation(&id)?;
@@ -482,6 +498,7 @@ impl App {
             Mode::NoTranslation => self.handle_no_translation(k),
             Mode::Bookmarks => self.handle_bookmarks(k),
             Mode::PickSecondary => self.handle_pick_secondary(k),
+            Mode::Settings => self.handle_settings(k),
             Mode::Quit => {}
         }
         Ok(())
@@ -562,6 +579,7 @@ impl App {
             KeyCode::Char('B') => self.open_bookmarks(),
             KeyCode::Char('|') => self.toggle_parallel(),
             KeyCode::Char('\\') => self.open_secondary_picker(),
+            KeyCode::Char(',') => self.open_settings(),
             _ => {}
         }
         if !matches!(k.code, KeyCode::Char('g')) {
@@ -917,6 +935,48 @@ impl App {
         match crate::bookmarks::save(&self.bookmarks) {
             Ok(()) => self.set_status("bookmark removed"),
             Err(e) => self.set_status(format!("bookmark save failed: {e}")),
+        }
+    }
+
+    fn open_settings(&mut self) {
+        self.settings_cursor = 0;
+        self.mode = Mode::Settings;
+    }
+
+    fn close_settings(&mut self) {
+        if let Err(e) = crate::settings::save(&self.settings) {
+            self.set_status(format!("settings save failed: {e}"));
+        }
+        // Translation/wide-grapheme padding may have changed → wipe stale
+        // skip cells from the previous render.
+        self.needs_clear = true;
+        self.mode = Mode::Normal;
+    }
+
+    fn handle_settings(&mut self, k: KeyEvent) {
+        let items = crate::tui::draw::SETTINGS_ITEMS;
+        let n = items.len();
+        match k.code {
+            KeyCode::Esc | KeyCode::Char('q') => self.close_settings(),
+            KeyCode::Down | KeyCode::Char('j') => {
+                if n > 0 {
+                    self.settings_cursor = (self.settings_cursor + 1).min(n - 1);
+                }
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.settings_cursor = self.settings_cursor.saturating_sub(1);
+            }
+            KeyCode::Left | KeyCode::Char('h') => {
+                if let Some(item) = items.get(self.settings_cursor) {
+                    item.prev(self);
+                }
+            }
+            KeyCode::Right | KeyCode::Char('l') | KeyCode::Enter => {
+                if let Some(item) = items.get(self.settings_cursor) {
+                    item.next(self);
+                }
+            }
+            _ => {}
         }
     }
 

@@ -28,6 +28,7 @@ pub mod manifest;
 pub mod parser;
 pub mod reference;
 pub mod search;
+pub mod settings;
 pub mod state;
 pub mod storage;
 pub mod tui;
