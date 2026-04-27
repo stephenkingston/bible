@@ -603,24 +603,30 @@ fn write_graphemes(
 /// Display width for a single grapheme cluster.
 ///
 /// `unicode-width` reflects the Unicode East Asian Width property and is
-/// agnostic to font rendering. Many monospace terminal fonts render
-/// complex-script glyphs wider than the property suggests, leaving the
-/// next character to overlap into the glyph. We compensate with two tiers
-/// of bump:
+/// font-agnostic. Some complex scripts (Indic, Arabic, Hebrew) regularly
+/// render wider than that in terminal fonts, so we inflate just those —
+/// not blanket "anything non-ASCII", which used to be the rule.
 ///
-/// - Non-ASCII graphemes that contain a *wide-extending* mark (Tamil
-///   vowel signs that stretch horizontally beyond the base letter, like
-///   `ா`, `ை`, `ெ`) get 3 columns. 2 isn't enough — base + extending
-///   sign visually consumes more than two cells in most Tamil fonts.
-/// - Other non-ASCII graphemes get 2 columns. Covers single-codepoint
-///   Tamil letters (`ஆ`), narrow-vowel combinations (`தி` where `ி`
-///   sits above the base), CJK already-wide letters (no-op), Latin
-///   diacritics, etc.
-/// - Plus an optional per-script bump from settings, for users whose
-///   fonts still don't separate the glyphs cleanly.
+/// The blanket rule misclassified Latin punctuation that happens to be
+/// non-ASCII — curly quotes (`"` `"` `'` `'`), em-dash, ellipsis — as
+/// 2 cells, even though every modern terminal font renders them as 1.
+/// Marking the phantom trailing cell with `skip=true` then means the
+/// renderer never updates that cell, so it keeps the previous frame's
+/// background and a strip next to the glyph stays unhighlighted.
+/// Translations like the NKJV that use curly quotes hit this constantly.
 ///
-/// Superscript digits (used as verse numbers when that style is on) are
-/// whitelisted to their raw 1-cell width so the prefix aligns.
+/// Tiers now:
+///
+/// - Tamil graphemes that contain a *wide-extending* vowel sign (`ா`,
+///   `ை`, `ெ`) get 3 cells.
+/// - Other Tamil / Devanagari / Arabic / Hebrew graphemes get 2 cells.
+/// - CJK is already wide-classified by `unicode-width` — trust it.
+/// - Latin (incl. accented), Greek, Cyrillic, Coptic, smart quotes,
+///   dashes, ellipsis, and anything else: trust `unicode-width`.
+///
+/// `script_letter_padding` adds an optional per-script bump on top.
+/// Superscript digits used in verse numbers stay at their raw 1-cell
+/// width regardless so the prefix aligns.
 fn display_width(g: &str, settings: &Settings) -> usize {
     let raw = UnicodeWidthStr::width(g);
     if raw == 0 {
@@ -632,10 +638,19 @@ fn display_width(g: &str, settings: &Settings) -> usize {
     if g.chars().all(is_super_digit) {
         return raw;
     }
-    let base = if g.chars().any(is_wide_extending_mark) {
-        raw.max(3)
-    } else {
-        raw.max(2)
+    let script = grapheme_script(g);
+    let base = match script {
+        Script::Tamil
+        | Script::Devanagari
+        | Script::Arabic
+        | Script::Hebrew => {
+            if g.chars().any(is_wide_extending_mark) {
+                raw.max(3)
+            } else {
+                raw.max(2)
+            }
+        }
+        Script::Cjk | Script::Latin | Script::Other => raw,
     };
     base + script_padding_cells(g, &settings.typography.script_letter_padding) as usize
 }
