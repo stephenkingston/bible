@@ -113,10 +113,20 @@ pub(crate) struct App {
     pub available: Vec<AvailableTranslation>,
     pub current: Option<BibleChapterReference>,
     /// 1-indexed verse cursor — the verse the user is currently focused on.
-    /// Moves with `↑/↓`, drives both the on-screen highlight and the
-    /// viewport scroll (single-pane: verse pinned near top; parallel:
-    /// shared anchor between the two panes).
+    /// Moves with `↑/↓`, drives the on-screen highlight, and (in single-
+    /// pane mode) pulls the viewport along when it leaves the visible area.
     pub focus_verse: u16,
+    /// Top row of the single-pane viewport (line index into the rendered
+    /// row list). Adjusted *during draw* — input handlers never touch it
+    /// directly. Unused in parallel mode (each pane derives its own start
+    /// from `focus_verse`).
+    pub scroll: u16,
+    /// One-shot flag: on the next draw, pin scroll so the focused verse
+    /// sits at the top. Set on chapter-changing navigation (`:ref`, ←/→,
+    /// search-hit, bookmark, translation switch); cleared the next frame.
+    /// Without this, `↑/↓` flow naturally — cursor moves inside the
+    /// viewport until it hits an edge, then scrolls.
+    pub pin_focus: bool,
     pub mode: Mode,
     pub input: Input,
     pub status: String,
@@ -242,7 +252,7 @@ fn run_app(terminal: &mut Tui, initial_translation: Option<String>) -> Result<()
             terminal.clear()?;
             app.needs_clear = false;
         }
-        terminal.draw(|f| draw::draw(f, &app))?;
+        terminal.draw(|f| draw::draw(f, &mut app))?;
         // 100ms timeout drives the search spinner animation; idle CPU cost
         // of waking the loop 10×/sec is negligible.
         match rx.recv_timeout(Duration::from_millis(100)) {
@@ -290,6 +300,8 @@ impl App {
             available,
             current: None,
             focus_verse: 1,
+            scroll: 0,
+            pin_focus: true,
             mode: Mode::Normal,
             input: Input::default(),
             status: String::new(),
@@ -509,6 +521,7 @@ impl App {
             .map_err(|_| anyhow::anyhow!("invalid chapter reference"))?;
         self.current = Some(cr);
         self.focus_verse = snap.focus_verse.max(1);
+        self.pin_focus = true;
         self.save_state();
         Ok(())
     }
@@ -523,6 +536,7 @@ impl App {
         self.current = BibleChapterReference::new(first_book, 1).ok();
         self.bible = Some(Arc::new(bible));
         self.focus_verse = 1;
+        self.pin_focus = true;
         self.mode = Mode::Normal;
         // Switching translations invalidates any in-flight search results
         // (different verse text → different hits).
@@ -1115,6 +1129,7 @@ impl App {
         }
         self.current = Some(cr);
         self.focus_verse = bm.verse.unwrap_or(1).max(1);
+        self.pin_focus = true;
         self.mode = Mode::Normal;
         self.save_state();
     }
@@ -1375,6 +1390,7 @@ impl App {
                     self.current = Some(cr);
                     let v_u32: u32 = vr.verse().into();
                     self.focus_verse = u16::try_from(v_u32).unwrap_or(1).max(1);
+                    self.pin_focus = true;
                     moved = true;
                 }
             }
@@ -1382,6 +1398,7 @@ impl App {
                 self.push_history();
                 self.current = Some(cr);
                 self.focus_verse = 1;
+                self.pin_focus = true;
                 moved = true;
             }
             Ok(BibleReferenceRepresentation::Single(BibleReference::BibleBook(_))) => {
@@ -1389,6 +1406,7 @@ impl App {
                     self.push_history();
                     self.current = Some(cr);
                     self.focus_verse = 1;
+                    self.pin_focus = true;
                     moved = true;
                 }
             }
@@ -1467,6 +1485,7 @@ impl App {
             self.current = Some(cr);
             let v_u32: u32 = vr.verse().into();
             self.focus_verse = u16::try_from(v_u32).unwrap_or(1).max(1);
+            self.pin_focus = true;
             self.save_state();
         }
     }
@@ -1479,6 +1498,7 @@ impl App {
             self.push_history();
             self.current = Some(next);
             self.focus_verse = 1;
+            self.pin_focus = true;
             self.save_state();
         }
     }
@@ -1491,6 +1511,7 @@ impl App {
             self.push_history();
             self.current = Some(next);
             self.focus_verse = 1;
+            self.pin_focus = true;
             self.save_state();
         }
     }

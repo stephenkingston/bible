@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -17,7 +19,7 @@ use crate::storage;
 
 use super::{App, Mode, SPINNER_FRAMES};
 
-pub fn draw(f: &mut Frame, app: &App) {
+pub fn draw(f: &mut Frame, app: &mut App) {
     let area = f.area();
 
     // Wipe the frame area at the top of every draw. ratatui's Buffer marks
@@ -48,7 +50,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     }
 }
 
-fn draw_reader(f: &mut Frame, app: &App, area: Rect) {
+fn draw_reader(f: &mut Frame, app: &mut App, area: Rect) {
     let theme = resolve_theme(&app.settings);
     let rows = Layout::default()
         .direction(Direction::Vertical)
@@ -68,16 +70,23 @@ fn draw_reader(f: &mut Frame, app: &App, area: Rect) {
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
             .split(body);
-        let primary = app.bible.as_ref().unwrap();
-        draw_chapter_pane(f, app, panes[0], primary, false, &theme);
-        if let Some(sec) = app.secondary_bible.as_ref() {
-            draw_chapter_pane(f, app, panes[1], sec, true, &theme);
+        // Clone the Arcs so we can hand `&Bible` to the chapter pane while
+        // still passing `&App` (for read-only state) without aliasing.
+        let primary = Arc::clone(app.bible.as_ref().unwrap());
+        let secondary = app.secondary_bible.as_ref().map(Arc::clone);
+        draw_chapter_pane(f, app, panes[0], &primary, false, &theme);
+        if let Some(sec) = secondary {
+            draw_chapter_pane(f, app, panes[1], &sec, true, &theme);
         }
         apply_divider_style(f, panes[0], panes[1], &app.settings);
     } else {
         let body = apply_width_cap(rows[1], &app.settings);
-        let primary = app.bible.as_ref().unwrap();
-        draw_chapter_pane(f, app, body, primary, false, &theme);
+        let primary = Arc::clone(app.bible.as_ref().unwrap());
+        let new_scroll = draw_chapter_pane(f, app, body, &primary, false, &theme);
+        if let Some(s) = new_scroll {
+            app.scroll = s;
+            app.pin_focus = false;
+        }
     }
     draw_bottom_bar(f, app, rows[2], &theme);
 }
@@ -229,6 +238,10 @@ fn draw_welcome(f: &mut Frame, area: Rect) {
 ///
 /// `is_secondary` flips the title border colour and embeds the translation
 /// id in the title so the user can tell the two panes apart at a glance.
+/// Returns the new scroll value the caller should write back to `app.scroll`,
+/// when applicable (single-pane primary). Returns `None` for parallel mode
+/// or the secondary pane — those use `first_row_for_verse(focus)` directly
+/// rather than persistent scroll.
 fn draw_chapter_pane(
     f: &mut Frame,
     app: &App,
@@ -236,9 +249,9 @@ fn draw_chapter_pane(
     bible: &crate::bible::Bible,
     is_secondary: bool,
     theme: &ResolvedTheme,
-) {
+) -> Option<u16> {
     let Some(cr) = app.current.as_ref() else {
-        return;
+        return None;
     };
 
     let border_color = if is_secondary {
@@ -299,7 +312,7 @@ fn draw_chapter_pane(
                     row_area,
                 );
             }
-            return;
+            return None;
         }
     };
 
@@ -324,12 +337,27 @@ fn draw_chapter_pane(
         &app.settings,
     );
 
-    // Both single-pane and parallel modes derive the viewport start from
-    // `focus_verse`; that pins the focused verse near the top of every
-    // pane while keeping verse alignment between parallel panes.
-    let start = first_row_for_verse(&rows, focus_verse);
-
+    // Parallel and the secondary pane pin focus to the top of every pane —
+    // both wrap shapes are different, so a per-pane "stay-in-view" scroll
+    // would diverge by visible row index. Single-pane primary lets focus
+    // ride freely until it leaves the viewport, then scrolls.
     let visible = inner.height as usize;
+    let new_scroll: Option<u16> = if app.parallel || is_secondary {
+        None
+    } else {
+        Some(compute_scroll(
+            &rows,
+            focus_verse,
+            visible,
+            app.scroll as usize,
+            app.pin_focus,
+        ))
+    };
+    let start = match new_scroll {
+        Some(s) => s as usize,
+        None => first_row_for_verse(&rows, focus_verse),
+    };
+
     let inner_width = inner.width;
     for (row_idx, row) in rows.iter().skip(start).take(visible).enumerate() {
         let row_area = Rect::new(inner.x, inner.y + row_idx as u16, inner_width, 1);
@@ -363,6 +391,59 @@ fn draw_chapter_pane(
             row_area,
         );
     }
+    new_scroll
+}
+
+/// Compute the new viewport top-row so the focus verse stays in view.
+///
+/// - `pin == true`: jump-style — pin the focus to the top with one row of
+///   context above (so jumps land at "near top" rather than flush top).
+/// - `pin == false`: scroll-with-cursor — keep `prev` if the focus is
+///   already inside the viewport; scroll just enough to bring it back in
+///   if it has moved off the top or bottom edge.
+///
+/// Verses spanning more rows than `visible` clamp scroll to the verse's
+/// first row so the start of the verse stays anchored at the top.
+fn compute_scroll(
+    rows: &[Row],
+    focus_verse: u16,
+    visible: usize,
+    prev: usize,
+    pin: bool,
+) -> u16 {
+    if visible == 0 || rows.is_empty() {
+        return prev as u16;
+    }
+    let mut first: Option<usize> = None;
+    let mut last: Option<usize> = None;
+    for (i, r) in rows.iter().enumerate() {
+        if r.verse == Some(focus_verse) {
+            if first.is_none() {
+                first = Some(i);
+            }
+            last = Some(i);
+        }
+    }
+    let (Some(first), Some(last)) = (first, last) else {
+        return prev as u16;
+    };
+    let max_scroll = rows.len().saturating_sub(visible);
+    let new = if pin {
+        // Leave one row of context above the focus when possible.
+        first.saturating_sub(1)
+    } else if first < prev {
+        first
+    } else if last >= prev + visible {
+        let span = last + 1 - first;
+        if span > visible {
+            first
+        } else {
+            (last + 1).saturating_sub(visible)
+        }
+    } else {
+        prev
+    };
+    new.min(max_scroll) as u16
 }
 
 /// Compute the verse-number cell style, the body-text style, and the
@@ -386,7 +467,7 @@ fn row_styles(row: &Row, theme: &ResolvedTheme) -> (Style, Style, Style) {
         } else {
             Style::default().fg(theme.verse_number).bg(theme.focus_bg)
         };
-        return (num_style.bold(), bg, bg);
+        return (num_style, bg, bg);
     }
     let num_style = if row.is_super_prefix {
         Style::default()
@@ -1412,7 +1493,7 @@ fn resolve_theme(s: &Settings) -> ResolvedTheme {
 // Settings modal
 // ─────────────────────────────────────────────────────────────────────────
 
-fn draw_settings(f: &mut Frame, app: &App, area: Rect) {
+fn draw_settings(f: &mut Frame, app: &mut App, area: Rect) {
     let theme = resolve_theme(&app.settings);
     let rows = Layout::default()
         .direction(Direction::Vertical)
@@ -1431,8 +1512,12 @@ fn draw_settings(f: &mut Frame, app: &App, area: Rect) {
         .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
         .split(rows[1]);
 
-    if let Some(b) = app.bible.as_ref() {
-        draw_chapter_pane(f, app, panes[0], b, false, &theme);
+    if let Some(b) = app.bible.as_ref().map(Arc::clone) {
+        let new_scroll = draw_chapter_pane(f, app, panes[0], &b, false, &theme);
+        if let Some(s) = new_scroll {
+            app.scroll = s;
+            app.pin_focus = false;
+        }
     } else {
         draw_welcome(f, panes[0]);
     }
