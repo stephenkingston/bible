@@ -602,30 +602,11 @@ fn write_graphemes(
 
 /// Display width for a single grapheme cluster.
 ///
-/// `unicode-width` reflects the Unicode East Asian Width property and is
-/// font-agnostic. Most scripts render at the declared width in modern
-/// terminal fonts; Tamil is the one that consistently overflows because
-/// its vowel-sign glyphs extend horizontally beyond their base letter.
-///
-/// We therefore only inflate Tamil by default. Devanagari, Arabic, and
-/// Hebrew render fine in most fonts at their `unicode-width` size and
-/// were previously over-padded — Hebrew especially looked spaced-out.
-/// Users who need extra room for any script can bump it via
-/// `settings.typography.script_letter_padding`.
-///
-/// Tiers now:
-///
-/// - Tamil graphemes containing a *wide-extending* vowel sign (`ா`,
-///   `ை`, `ெ`) get 3 cells.
-/// - Other Tamil graphemes get 2 cells.
-/// - CJK keeps its `unicode-width` value (already wide-classified).
-/// - Everything else (Latin incl. accented, Greek, Cyrillic, Hebrew,
-///   Arabic, Devanagari, smart quotes, dashes, ellipsis): trust
-///   `unicode-width` directly.
-///
-/// `script_letter_padding` adds an optional per-script bump on top.
-/// Superscript digits used in verse numbers stay at their raw 1-cell
-/// width regardless so the prefix aligns.
+/// Trusts `unicode-width` for every script — no automatic inflation, not
+/// even for Tamil. Some monospace fonts overflow declared cell widths
+/// for complex scripts, but rather than baking in a hardcoded fix,
+/// users tune that via `settings.typography.script_letter_padding`
+/// per-script. ASCII bytes and superscript digits short-circuit out.
 fn display_width(g: &str, settings: &Settings) -> usize {
     let raw = UnicodeWidthStr::width(g);
     if raw == 0 {
@@ -637,18 +618,7 @@ fn display_width(g: &str, settings: &Settings) -> usize {
     if g.chars().all(is_super_digit) {
         return raw;
     }
-    let script = grapheme_script(g);
-    let base = match script {
-        Script::Tamil => {
-            if g.chars().any(is_wide_extending_mark) {
-                raw.max(3)
-            } else {
-                raw.max(2)
-            }
-        }
-        _ => raw,
-    };
-    base + script_padding_cells(g, &settings.typography.script_letter_padding) as usize
+    raw + script_padding_cells(g, &settings.typography.script_letter_padding) as usize
 }
 
 fn is_super_digit(c: char) -> bool {
@@ -706,24 +676,6 @@ fn script_padding_cells(g: &str, p: &ScriptPadding) -> u8 {
         Script::Cjk => p.cjk,
         Script::Other => p.default,
     }
-}
-
-/// True for combining marks that visually *extend* horizontally beyond the
-/// base letter (as opposed to compact marks that sit above/below). Hand-
-/// curated for Tamil — the only complex script the user has reported
-/// trouble with so far. Easy to extend to Devanagari/Bengali/Sinhala/
-/// etc. as needed.
-fn is_wide_extending_mark(c: char) -> bool {
-    matches!(c,
-        // Tamil aa-sign
-        '\u{0BBE}'
-        // Tamil e-, ee-, ai-sign (left-side, two-part with ai)
-        | '\u{0BC6}'..='\u{0BC8}'
-        // Tamil o-, oo-, au-sign (two-part)
-        | '\u{0BCA}'..='\u{0BCC}'
-        // Tamil au-length-mark
-        | '\u{0BD7}'
-    )
 }
 
 struct Row {
