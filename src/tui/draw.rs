@@ -1116,7 +1116,7 @@ fn sanitize_one_line(s: &str) -> String {
         .collect()
 }
 
-fn draw_manager(f: &mut Frame, app: &App, area: Rect) {
+fn draw_manager(f: &mut Frame, app: &mut App, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Magenta))
@@ -1155,8 +1155,7 @@ fn draw_manager(f: &mut Frame, app: &App, area: Rect) {
     let indices = app.filtered_indices();
     let items: Vec<ListItem> = indices
         .iter()
-        .enumerate()
-        .map(|(row, &idx)| {
+        .map(|&idx| {
             let t = &app.available[idx];
             let installed = storage::is_installed(&t.id);
             let mark = if installed { "●" } else { "○" };
@@ -1164,11 +1163,6 @@ fn draw_manager(f: &mut Frame, app: &App, area: Rect) {
                 Style::default().fg(Color::Green).bold()
             } else {
                 Style::default().fg(Color::Indexed(244))
-            };
-            let row_style = if row == app.manager_cursor {
-                Style::default().bg(Color::Indexed(236))
-            } else {
-                Style::default()
             };
             ListItem::new(Line::from(vec![
                 Span::raw(" "),
@@ -1186,12 +1180,21 @@ fn draw_manager(f: &mut Frame, app: &App, area: Rect) {
                     Style::default().add_modifier(Modifier::DIM),
                 ),
             ]))
-            .style(row_style)
         })
         .collect();
 
-    let list = List::new(items);
-    f.render_widget(list, rows[1]);
+    // Stateful render so ratatui auto-scrolls the list to keep the
+    // highlighted row visible. Without this the cursor walks off-screen
+    // for catalogs longer than the pane.
+    let total = indices.len();
+    let cursor = if total == 0 {
+        None
+    } else {
+        Some(app.manager_cursor.min(total - 1))
+    };
+    app.manager_list_state.select(cursor);
+    let list = List::new(items).highlight_style(Style::default().bg(Color::Indexed(236)));
+    f.render_stateful_widget(list, rows[1], &mut app.manager_list_state);
 
     let hint = hint_line(&[
         ("Enter", "install/uninstall"),

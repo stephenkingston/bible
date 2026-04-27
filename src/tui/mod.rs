@@ -160,6 +160,9 @@ pub(crate) struct App {
 
     pub manager_filter: Input,
     pub manager_cursor: usize,
+    /// Preserved across frames so ratatui auto-scrolls the list to keep
+    /// the cursor in view (the cursor index alone doesn't carry offset).
+    pub manager_list_state: ratatui::widgets::ListState,
 
     pub bookmarks: Vec<crate::bookmarks::Bookmark>,
     pub bookmarks_cursor: usize,
@@ -358,6 +361,7 @@ impl App {
             pending_g: false,
             manager_filter: Input::default(),
             manager_cursor: 0,
+            manager_list_state: ratatui::widgets::ListState::default(),
             bookmarks: crate::bookmarks::load(),
             bookmarks_cursor: 0,
             bookmarks_note_scroll: 0,
