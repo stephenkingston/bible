@@ -739,10 +739,15 @@ impl App {
             KeyCode::Char('\\') => self.open_secondary_picker(),
             KeyCode::Char(',') => self.open_settings(),
             // Browser-style back / forward across chapter-level jumps.
-            // Ctrl-O / Ctrl-I = vim convention.
+            // Vim convention is Ctrl-O / Ctrl-I, but Ctrl-I and Tab both
+            // emit byte 0x09 in most terminals, so crossterm reports it as
+            // `KeyCode::Tab`. Bind Tab as the working forward; keep
+            // Char('i')+Ctrl for the few terminals (kitty keyboard
+            // protocol, etc.) that do distinguish.
             KeyCode::Char('o') if k.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.nav_back();
             }
+            KeyCode::Tab => self.nav_forward(),
             KeyCode::Char('i') if k.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.nav_forward();
             }

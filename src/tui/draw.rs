@@ -1167,7 +1167,7 @@ fn draw_help_overlay(f: &mut Frame, area: Rect) {
         row("/", "search current translation"),
         row("↑ / ↓", "(in : or /) browse command history"),
         row("n / N", "next / previous search match"),
-        row("Ctrl-O / Ctrl-I", "back / forward through reference history"),
+        row("Ctrl-O / Tab", "back / forward through reference history"),
         Line::from(""),
         header("Bookmarks"),
         row("b", "bookmark current chapter"),

@@ -39,7 +39,7 @@ bible install kjv
 | `Home` / `End`       | top / bottom of chapter                                           |
 | `:`                  | jump to a reference (e.g. `:John 3:16`)                           |
 | `/`, `n`, `N`        | search, next, previous match                                      |
-| `Ctrl-O` / `Ctrl-I`  | back / forward through reference history (browser-style)          |
+| `Ctrl-O` / `Tab`     | back / forward through reference history (browser-style)          |
 | `t`                  | cycle installed translations                                      |
 | `T`                  | open Translation Manager                                          |
 | `b`                  | bookmark current chapter (no prompt)                              |
