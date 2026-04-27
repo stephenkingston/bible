@@ -30,19 +30,41 @@ bible install kjv
 
 ### Keybindings (Reader)
 
-| Key            | Action                                  |
-| -------------- | --------------------------------------- |
-| `j` / `k`      | scroll one line                         |
-| `Ctrl-d/u`     | half-page scroll                        |
-| `gg` / `G`     | top / bottom of chapter                 |
-| `h` / `l`      | previous / next chapter                 |
-| `H` / `L`      | previous / next book                    |
-| `:`            | jump to a reference (e.g. `:John 3:16`) |
-| `/`, `n`, `N`  | search, next, previous match            |
-| `t`            | cycle installed translations            |
-| `T`            | open Translation Manager                |
-| `?`            | help overlay                            |
-| `q`            | quit                                    |
+| Key            | Action                                                            |
+| -------------- | ----------------------------------------------------------------- |
+| `j` / `k`      | scroll one line (in parallel view: advance verse anchor)          |
+| `Ctrl-d/u`     | half-page scroll                                                  |
+| `gg` / `G`     | top / bottom of chapter                                           |
+| `h` / `l`      | previous / next chapter                                           |
+| `H` / `L`      | previous / next book                                              |
+| `:`            | jump to a reference (e.g. `:John 3:16`)                           |
+| `/`, `n`, `N`  | search, next, previous match                                      |
+| `t`            | cycle installed translations                                      |
+| `T`            | open Translation Manager                                          |
+| `b`            | bookmark current chapter (no prompt)                              |
+| `B`            | open the bookmarks list                                           |
+| `\|`           | toggle parallel view (opens chooser if no secondary picked)       |
+| `\`            | re-open the secondary-translation chooser to swap                 |
+| `?`            | help overlay                                                      |
+| `q`            | quit                                                              |
+
+`:b` extensions on the jump bar:
+
+| Input                    | Action                                                |
+| ------------------------ | ----------------------------------------------------- |
+| `:b`                     | bookmark current chapter, no note                     |
+| `:b 16`                  | bookmark verse 16 of current chapter                  |
+| `:b a great verse`       | bookmark current chapter with note                    |
+| `:b 16 a great verse`    | bookmark verse 16 with note                           |
+
+### Bookmarks (`B`)
+
+| Key          | Action                                          |
+| ------------ | ----------------------------------------------- |
+| `j` / `k`    | move selection                                  |
+| `Enter`      | jump to bookmark (switches translation if needed) |
+| `d`          | delete the highlighted bookmark                 |
+| `Esc` / `q`  | close                                           |
 
 ### Translation Manager
 
@@ -53,6 +75,12 @@ bible install kjv
 | `r`       | refresh catalog from GitHub       |
 | any text  | filter (id / name / language)     |
 | `Esc`     | back to Reader                    |
+
+### Resume
+
+The reader remembers your last position (translation, book, chapter, scroll, and
+parallel-view state) and restores it on the next launch. Stored in
+`<config_dir>/state.toml`.
 
 ## Use as a CLI
 
@@ -104,8 +132,18 @@ and config locations for each platform:
 | macOS   | `~/Library/Application Support/com.stephenkingston.bible/` | same as data                              |
 | Windows | `%APPDATA%\stephenkingston\bible\data\`                    | `%APPDATA%\stephenkingston\bible\config\` |
 
-Each installed translation lives at `translations/<id>/`, containing
-`bible.bin` (bincode-serialised) and `meta.json`.
+Each installed translation lives under data at `translations/<id>/`, containing
+`bible.bin` (bincode-serialised) and `meta.json`. Your reader state lives under
+config:
+
+| File                              | What it holds                              |
+| --------------------------------- | ------------------------------------------ |
+| `<config>/state.toml`             | last reading position + parallel-view pair |
+| `<config>/bookmarks.toml`         | your bookmarks (chapter or verse + note)   |
+| `<config>/manifest.json`          | cached catalog from `bible refresh`        |
+
+Both `state.toml` and `bookmarks.toml` are human-editable TOML and are
+schema-versioned: on a version mismatch the file is ignored (not clobbered).
 
 ## Limitations
 
