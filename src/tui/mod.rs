@@ -77,6 +77,12 @@ pub(crate) struct DownloadState {
 
 const MAX_HISTORY: usize = 50;
 
+fn same_chapter(a: &NavSnapshot, b: &NavSnapshot) -> bool {
+    a.translation == b.translation
+        && a.book_number == b.book_number
+        && a.chapter == b.chapter
+}
+
 fn push_history(history: &mut Vec<String>, entry: &str) {
     let entry = entry.trim();
     if entry.is_empty() {
@@ -146,6 +152,23 @@ pub(crate) struct App {
     pub jump_history_idx: Option<usize>,
     pub search_history: Vec<String>,
     pub search_history_idx: Option<usize>,
+
+    /// Browser-style back/forward over reading positions. Each user-driven
+    /// chapter-level navigation pushes the *previous* position onto
+    /// `back_stack` and clears `forward_stack`. Ctrl-O pops back; Ctrl-I
+    /// pops forward. Dedupe is on (translation, book, chapter) so scrolling
+    /// inside one chapter doesn't pollute the history.
+    pub back_stack: Vec<NavSnapshot>,
+    pub forward_stack: Vec<NavSnapshot>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct NavSnapshot {
+    pub translation: String,
+    pub book_number: u8,
+    pub chapter: u16,
+    pub scroll: u16,
+    pub verse_anchor: u16,
 }
 
 pub fn run(initial_translation: Option<String>) -> Result<()> {
@@ -284,6 +307,8 @@ impl App {
             jump_history_idx: None,
             search_history: Vec::new(),
             search_history_idx: None,
+            back_stack: Vec::new(),
+            forward_stack: Vec::new(),
         })
     }
 
@@ -389,6 +414,96 @@ impl App {
             parallel,
         };
         let _ = crate::state::save(&state);
+    }
+
+    fn snapshot(&self) -> Option<NavSnapshot> {
+        let bible = self.bible.as_ref()?;
+        let cr = self.current.as_ref()?;
+        let chap_u32: u32 = cr.chapter().into();
+        let chapter = u16::try_from(chap_u32).ok()?;
+        Some(NavSnapshot {
+            translation: bible.translation.id.clone(),
+            book_number: cr.book().number(),
+            chapter,
+            scroll: self.scroll,
+            verse_anchor: self.verse_anchor,
+        })
+    }
+
+    /// Record the current position before navigating elsewhere. Dedupe on
+    /// (translation, book, chapter) so scrolling within one chapter doesn't
+    /// fragment the back stack. Caps the stack at 100 entries; clears
+    /// forward_stack since a new navigation invalidates the redo path
+    /// (browser semantics).
+    fn push_history(&mut self) {
+        let Some(snap) = self.snapshot() else { return };
+        if let Some(last) = self.back_stack.last() {
+            if same_chapter(last, &snap) {
+                return;
+            }
+        }
+        self.back_stack.push(snap);
+        if self.back_stack.len() > 100 {
+            self.back_stack.remove(0);
+        }
+        self.forward_stack.clear();
+    }
+
+    fn nav_back(&mut self) {
+        let Some(snap) = self.back_stack.pop() else {
+            self.set_status("no further back");
+            return;
+        };
+        if let Some(cur) = self.snapshot() {
+            self.forward_stack.push(cur);
+        }
+        if let Err(e) = self.restore_snapshot(&snap) {
+            self.set_status(format!("back failed: {e}"));
+        }
+    }
+
+    fn nav_forward(&mut self) {
+        let Some(snap) = self.forward_stack.pop() else {
+            self.set_status("no further forward");
+            return;
+        };
+        if let Some(cur) = self.snapshot() {
+            self.back_stack.push(cur);
+        }
+        if let Err(e) = self.restore_snapshot(&snap) {
+            self.set_status(format!("forward failed: {e}"));
+        }
+    }
+
+    /// Apply a snapshot. Reloads the translation only if it differs from
+    /// the currently-loaded one. Bypasses `push_history` — the caller is
+    /// already traversing the stack, not creating new entries.
+    fn restore_snapshot(&mut self, snap: &NavSnapshot) -> Result<()> {
+        let cur_id = self
+            .bible
+            .as_ref()
+            .map(|b| b.translation.id.clone())
+            .unwrap_or_default();
+        if cur_id != snap.translation {
+            if !storage::is_installed(&snap.translation) {
+                return Err(anyhow::anyhow!(
+                    "translation `{}` is no longer installed",
+                    snap.translation
+                ));
+            }
+            self.load_translation(&snap.translation)?;
+        }
+        let book = book_from_number(snap.book_number)
+            .map_err(|_| anyhow::anyhow!("invalid book number"))?;
+        let chap_u8 = u8::try_from(snap.chapter)
+            .map_err(|_| anyhow::anyhow!("invalid chapter"))?;
+        let cr = BibleChapterReference::new(book, chap_u8)
+            .map_err(|_| anyhow::anyhow!("invalid chapter reference"))?;
+        self.current = Some(cr);
+        self.scroll = snap.scroll;
+        self.verse_anchor = snap.verse_anchor;
+        self.save_state();
+        Ok(())
     }
 
     pub(crate) fn load_translation(&mut self, id: &str) -> Result<()> {
@@ -615,6 +730,14 @@ impl App {
             KeyCode::Char('|') => self.toggle_parallel(),
             KeyCode::Char('\\') => self.open_secondary_picker(),
             KeyCode::Char(',') => self.open_settings(),
+            // Browser-style back / forward across chapter-level jumps.
+            // Ctrl-O / Ctrl-I = vim convention.
+            KeyCode::Char('o') if k.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.nav_back();
+            }
+            KeyCode::Char('i') if k.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.nav_forward();
+            }
             _ => {}
         }
         if !matches!(k.code, KeyCode::Char('g')) {
@@ -824,6 +947,7 @@ impl App {
         let n = self.installed.len() as i32;
         let next = (((pos as i32 + dir) % n) + n) % n;
         let id = self.installed[next as usize].id.clone();
+        self.push_history();
         match self.load_translation(&id) {
             Ok(()) => {
                 self.set_status(format!("switched to {id}"));
@@ -914,7 +1038,22 @@ impl App {
         let Some(bm) = self.bookmarks.get(self.bookmarks_cursor).cloned() else {
             return;
         };
-        // Switch translation if needed.
+        // Pre-validate everything so we don't push to history on a no-op.
+        let Ok(book) = book_from_number(bm.book_number) else {
+            self.set_status("invalid bookmark");
+            return;
+        };
+        let Ok(chap_u8) = u8::try_from(bm.chapter) else {
+            self.set_status("invalid bookmark");
+            return;
+        };
+        let Ok(cr) = BibleChapterReference::new(book.clone(), chap_u8) else {
+            self.set_status("invalid bookmark");
+            return;
+        };
+        // Record the pre-jump position before any state mutation (a
+        // possible translation switch comes next).
+        self.push_history();
         let already_loaded = self
             .bible
             .as_ref()
@@ -933,18 +1072,6 @@ impl App {
                 return;
             }
         }
-        let Ok(book) = book_from_number(bm.book_number) else {
-            self.set_status("invalid bookmark");
-            return;
-        };
-        let Ok(chap_u8) = u8::try_from(bm.chapter) else {
-            self.set_status("invalid bookmark");
-            return;
-        };
-        let Ok(cr) = BibleChapterReference::new(book.clone(), chap_u8) else {
-            self.set_status("invalid bookmark");
-            return;
-        };
         self.current = Some(cr);
         if let Some(v) = bm.verse {
             if let Ok(vu8) = u8::try_from(v) {
@@ -1201,6 +1328,7 @@ impl App {
                         Err(_) => return,
                     }
                 }) {
+                    self.push_history();
                     self.current = Some(cr);
                     self.scroll = nav::verse_scroll(&vr);
                     let v_u32: u32 = vr.verse().into();
@@ -1209,6 +1337,7 @@ impl App {
                 }
             }
             Ok(BibleReferenceRepresentation::Single(BibleReference::BibleChapter(cr))) => {
+                self.push_history();
                 self.current = Some(cr);
                 self.scroll = 0;
                 self.verse_anchor = 1;
@@ -1216,6 +1345,7 @@ impl App {
             }
             Ok(BibleReferenceRepresentation::Single(BibleReference::BibleBook(_))) => {
                 if let Ok(cr) = nav::first_chapter_of_parsed(q) {
+                    self.push_history();
                     self.current = Some(cr);
                     self.scroll = 0;
                     self.verse_anchor = 1;
@@ -1293,6 +1423,7 @@ impl App {
             return;
         };
         if let Ok(cr) = BibleChapterReference::new(vr.book(), chap) {
+            self.push_history();
             self.current = Some(cr);
             self.scroll = nav::verse_scroll(&vr);
             let v_u32: u32 = vr.verse().into();
@@ -1306,6 +1437,7 @@ impl App {
             return;
         };
         if let Some(next) = nav::shift_chapter(cur, dir) {
+            self.push_history();
             self.current = Some(next);
             self.scroll = 0;
             self.verse_anchor = 1;
@@ -1318,6 +1450,7 @@ impl App {
             return;
         };
         if let Some(next) = nav::shift_book(cur, dir) {
+            self.push_history();
             self.current = Some(next);
             self.scroll = 0;
             self.verse_anchor = 1;

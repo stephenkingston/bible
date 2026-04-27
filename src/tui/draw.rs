@@ -270,8 +270,9 @@ fn draw_chapter_pane(
         .borders(Borders::ALL)
         .border_style(Style::default().fg(border_color))
         // Asymmetric padding by request: tight at top/left (0/1), looser at
-        // right/bottom (3/2) so text breathes from the trailing edges.
-        .padding(Padding::new(1, 3, 0, 2))
+        // right (3); bottom kept at 1 so the chapter doesn't feel bottom-
+        // heavy on short verses.
+        .padding(Padding::new(1, 3, 0, 1))
         .title(Line::from(title_spans));
     let inner = block.inner(area);
     f.render_widget(block, area);
@@ -1149,7 +1150,7 @@ fn draw_help_overlay(f: &mut Frame, area: Rect) {
     let row = |key: &'static str, label: &'static str| {
         Line::from(vec![
             Span::raw("  "),
-            Span::styled(format!("{:<14}", key), Style::default().fg(Color::Cyan).bold()),
+            Span::styled(format!("{:<18}", key), Style::default().fg(Color::Cyan).bold()),
             Span::styled(label, Style::default().add_modifier(Modifier::DIM)),
         ])
     };
@@ -1166,6 +1167,7 @@ fn draw_help_overlay(f: &mut Frame, area: Rect) {
         row("/", "search current translation"),
         row("↑ / ↓", "(in : or /) browse command history"),
         row("n / N", "next / previous search match"),
+        row("Ctrl-O / Ctrl-I", "back / forward through reference history"),
         Line::from(""),
         header("Bookmarks"),
         row("b", "bookmark current chapter"),
