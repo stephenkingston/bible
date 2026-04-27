@@ -269,9 +269,9 @@ fn draw_chapter_pane(
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(border_color))
-        // Asymmetric padding by request: keep top/left tight (0/1), triple
-        // right/bottom (3/3) so text breathes from the border on those sides.
-        .padding(Padding::new(1, 3, 0, 3))
+        // Asymmetric padding by request: tight at top/left (0/1), looser at
+        // right/bottom (3/2) so text breathes from the trailing edges.
+        .padding(Padding::new(1, 3, 0, 2))
         .title(Line::from(title_spans));
     let inner = block.inner(area);
     f.render_widget(block, area);
