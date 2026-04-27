@@ -5,7 +5,7 @@ translations, all downloaded on demand from the
 [Beblia Holy-Bible-XML-Format](https://github.com/Beblia/Holy-Bible-XML-Format)
 repository. No texts are embedded in the binary.
 
-![Screencast](screenshots/screencast.gif)
+![Screencast](https://raw.githubusercontent.com/stephenkingston/bible/main/screenshots/screencast.gif)
 
 ## Install
 
@@ -31,23 +31,23 @@ bible install kjv
 
 Reader with focus cursor + chapter pane:
 
-![Reader](screenshots/reader.png)
+![Reader](https://raw.githubusercontent.com/stephenkingston/bible/main/screenshots/reader.png)
 
 Live-preview Settings modal (typography, theme, parallel divider):
 
-![Settings](screenshots/settings.png)
+![Settings](https://raw.githubusercontent.com/stephenkingston/bible/main/screenshots/settings.png)
 
 Substring search across the whole text:
 
-![Search](screenshots/search.png)
+![Search](https://raw.githubusercontent.com/stephenkingston/bible/main/screenshots/search.png)
 
 Bible-in-a-Year plan, full-year view:
 
-![Year plan](screenshots/year-plan.png)
+![Year plan](https://raw.githubusercontent.com/stephenkingston/bible/main/screenshots/year-plan.png)
 
 Help overlay (`?`):
 
-![Help](screenshots/help.png)
+![Help](https://raw.githubusercontent.com/stephenkingston/bible/main/screenshots/help.png)
 
 ## Highlights
 
