@@ -819,6 +819,23 @@ fn draw_bottom_bar(f: &mut Frame, app: &App, area: Rect, theme: &ResolvedTheme) 
                     sanitize_one_line(&app.status),
                     Style::default().fg(theme.status_bar_dim),
                 ))
+            } else if app.parallel {
+                // Surface the parallel-close hint inline; without it `|` is
+                // hard to remember and there's no other obvious way out.
+                Line::from(vec![
+                    Span::styled(
+                        " :ref  /search  jk verse  hl chapter  ",
+                        Style::default().add_modifier(Modifier::DIM),
+                    ),
+                    Span::styled(
+                        "| close parallel",
+                        Style::default().fg(theme.title_translation).bold(),
+                    ),
+                    Span::styled(
+                        "  \\ swap  q quit ",
+                        Style::default().add_modifier(Modifier::DIM),
+                    ),
+                ])
             } else {
                 Line::from(Span::styled(
                     " :ref  /search  hjkl move  , settings  q quit  ? help ",

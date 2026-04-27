@@ -1006,8 +1006,8 @@ impl App {
             self.needs_clear = true;
             self.save_state();
             self.set_status(format!(
-                "parallel view: {}",
-                self.secondary_id.as_deref().unwrap_or("?")
+                "parallel: {} (| to close)",
+                self.secondary_id.as_deref().unwrap_or("?"),
             ));
         } else {
             self.open_secondary_picker();
@@ -1083,7 +1083,7 @@ impl App {
                 self.mode = Mode::Normal;
                 self.needs_clear = true;
                 self.save_state();
-                self.set_status(format!("parallel: {id}"));
+                self.set_status(format!("parallel: {id} (| to close)"));
             }
             Err(e) => self.set_status(format!("load failed: {e}")),
         }
