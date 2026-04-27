@@ -32,11 +32,11 @@ bible install kjv
 
 | Key                  | Action                                                            |
 | -------------------- | ----------------------------------------------------------------- |
-| `↑` / `↓`            | scroll one line (in parallel view: change verse anchor)           |
+| `↑` / `↓`            | move verse cursor (focused verse highlighted, viewport follows)   |
 | `←` / `→`            | previous / next chapter                                           |
 | `Shift+←` / `Shift+→`| previous / next book                                              |
-| `PgUp` / `PgDn`      | half-page scroll                                                  |
-| `Home` / `End`       | top / bottom of chapter                                           |
+| `PgUp` / `PgDn`      | jump 5 verses                                                     |
+| `Home` / `End`       | first / last verse of chapter                                     |
 | `:`                  | jump to a reference (e.g. `:John 3:16`)                           |
 | `/`, `n`, `N`        | search, next, previous match                                      |
 | `Ctrl-O` / `Tab`     | back / forward through reference history (browser-style)          |

@@ -1,5 +1,5 @@
 use crate::reference::{
-    BibleChapterReference, BibleReference, BibleReferenceRepresentation, BibleVerseReference,
+    BibleChapterReference, BibleReference, BibleReferenceRepresentation,
     get_bible_book_by_number, get_number_of_chapters,
 };
 
@@ -47,13 +47,6 @@ pub fn shift_book(r: &BibleChapterReference, dir: i32) -> Option<BibleChapterRef
     };
     let nb = get_bible_book_by_number(target)?;
     BibleChapterReference::new(nb, 1).ok()
-}
-
-/// Best-effort: scroll position so the verse is near the top of the viewport.
-/// We don't know wrapping at this layer, so we approximate by line index = verse - 1.
-pub fn verse_scroll(vr: &BibleVerseReference) -> u16 {
-    let v: u32 = vr.verse().into();
-    v.saturating_sub(1).min(u16::MAX as u32) as u16
 }
 
 /// Re-parse a query and return its first chapter when it resolved to a book-only ref.

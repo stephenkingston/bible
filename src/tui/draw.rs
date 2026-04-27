@@ -293,6 +293,7 @@ fn draw_chapter_pane(
                         prefix_style: Style::default(),
                         content,
                         content_style: Style::default().add_modifier(Modifier::DIM),
+                        row_bg: Style::default(),
                         settings: &app.settings,
                     },
                     row_area,
@@ -302,37 +303,44 @@ fn draw_chapter_pane(
         }
     };
 
-    let highlight_verse = if is_secondary {
+    // Search hit on this chapter (only on the primary pane). Drawn loud
+    // (yellow) on top of the always-on focus highlight.
+    let search_hit_verse = if is_secondary {
         None
     } else {
         highlighted_verse_for(app, cr)
     };
+    let focus_verse = app.focus_verse.max(1);
     let prefix_w: usize = match app.settings.typography.verse_number_style {
         VerseNumberStyle::InlineBold | VerseNumberStyle::Superscript => 4,
         VerseNumberStyle::Hidden => 0,
     };
     let avail = (inner.width as usize).saturating_sub(prefix_w).max(1);
-    let rows = build_rows(chapter, avail, highlight_verse, &app.settings);
+    let rows = build_rows(
+        chapter,
+        avail,
+        focus_verse,
+        search_hit_verse,
+        &app.settings,
+    );
 
-    // Single-pane reads `app.scroll` (line offset). Parallel mode reads
-    // `app.verse_anchor` and finds each pane's own row index for that verse,
-    // so different wrap shapes don't desync.
-    let start = if app.parallel {
-        first_row_for_verse(&rows, app.verse_anchor.max(1))
-    } else {
-        app.scroll as usize
-    };
+    // Both single-pane and parallel modes derive the viewport start from
+    // `focus_verse`; that pins the focused verse near the top of every
+    // pane while keeping verse alignment between parallel panes.
+    let start = first_row_for_verse(&rows, focus_verse);
 
     let visible = inner.height as usize;
+    let inner_width = inner.width;
     for (row_idx, row) in rows.iter().skip(start).take(visible).enumerate() {
-        let row_area = Rect::new(inner.x, inner.y + row_idx as u16, inner.width, 1);
-        let (num_style, text_style) = row_styles(row, theme);
+        let row_area = Rect::new(inner.x, inner.y + row_idx as u16, inner_width, 1);
+        let (num_style, text_style, row_bg) = row_styles(row, theme);
         f.render_widget(
             ChapterRow {
                 prefix: &row.prefix,
                 prefix_style: num_style,
                 content: &row.content,
                 content_style: text_style,
+                row_bg,
                 settings: &app.settings,
             },
             row_area,
@@ -342,13 +350,14 @@ fn draw_chapter_pane(
     // Blank any trailing rows when the chapter is shorter than the viewport.
     let rendered = rows.len().saturating_sub(start).min(visible);
     for row_idx in rendered..visible {
-        let row_area = Rect::new(inner.x, inner.y + row_idx as u16, inner.width, 1);
+        let row_area = Rect::new(inner.x, inner.y + row_idx as u16, inner_width, 1);
         f.render_widget(
             ChapterRow {
                 prefix: "",
                 prefix_style: Style::default(),
                 content: "",
                 content_style: Style::default(),
+                row_bg: Style::default(),
                 settings: &app.settings,
             },
             row_area,
@@ -356,25 +365,37 @@ fn draw_chapter_pane(
     }
 }
 
-fn row_styles(row: &Row, theme: &ResolvedTheme) -> (Style, Style) {
-    let num_style = if row.highlighted {
-        Style::default()
+/// Compute the verse-number cell style, the body-text style, and the
+/// row-wide background style. The row bg is applied to every cell first
+/// so the highlight extends across the entire content row, including the
+/// trailing whitespace past the wrapped text.
+fn row_styles(row: &Row, theme: &ResolvedTheme) -> (Style, Style, Style) {
+    if row.is_search_hit {
+        let loud = Style::default()
             .fg(theme.current_verse_fg)
-            .bg(theme.current_verse_bg)
-            .bold()
-    } else if row.is_super_prefix {
+            .bg(theme.current_verse_bg);
+        return (loud.bold(), loud.bold(), loud);
+    }
+    if row.is_focus {
+        let bg = Style::default().bg(theme.focus_bg);
+        let num_style = if row.is_super_prefix {
+            Style::default()
+                .fg(theme.verse_number_super)
+                .bg(theme.focus_bg)
+                .add_modifier(Modifier::DIM)
+        } else {
+            Style::default().fg(theme.verse_number).bg(theme.focus_bg)
+        };
+        return (num_style.bold(), bg, bg);
+    }
+    let num_style = if row.is_super_prefix {
         Style::default()
             .fg(theme.verse_number_super)
             .add_modifier(Modifier::DIM)
     } else {
         Style::default().fg(theme.verse_number)
     };
-    let text_style = if row.highlighted {
-        Style::default().bold()
-    } else {
-        Style::default()
-    };
-    (num_style, text_style)
+    (num_style, Style::default(), Style::default())
 }
 
 /// Custom row renderer for the chapter content. Bypasses Line/Paragraph and
@@ -395,6 +416,9 @@ struct ChapterRow<'a> {
     prefix_style: Style,
     content: &'a str,
     content_style: Style,
+    /// Applied to every cell in the row first, so the highlight covers the
+    /// trailing whitespace past wrapped text. `Style::default()` = no bg.
+    row_bg: Style,
     settings: &'a Settings,
 }
 
@@ -407,7 +431,7 @@ impl Widget for ChapterRow<'_> {
         for x in area.left()..area.right() {
             if let Some(cell) = buf.cell_mut((x, y)) {
                 cell.reset();
-                cell.set_symbol(" ");
+                cell.set_symbol(" ").set_style(self.row_bg);
                 cell.set_skip(false);
             }
         }
@@ -578,7 +602,10 @@ fn is_wide_extending_mark(c: char) -> bool {
 }
 
 struct Row {
-    highlighted: bool,
+    /// Always-on focus highlight (whichever verse the cursor sits on).
+    is_focus: bool,
+    /// Loud overlay for the active search hit on the current chapter.
+    is_search_hit: bool,
     prefix: String,
     content: String,
     /// Verse number this row belongs to. `None` for blank/spacer rows. Used
@@ -591,7 +618,8 @@ struct Row {
 impl Row {
     fn blank() -> Self {
         Row {
-            highlighted: false,
+            is_focus: false,
+            is_search_hit: false,
             prefix: String::new(),
             content: String::new(),
             verse: None,
@@ -605,7 +633,8 @@ impl Row {
 fn build_rows(
     chapter: &crate::bible::Chapter,
     avail: usize,
-    highlight_verse: Option<u16>,
+    focus_verse: u16,
+    search_hit_verse: Option<u16>,
     settings: &Settings,
 ) -> Vec<Row> {
     let style = settings.typography.verse_number_style;
@@ -616,7 +645,8 @@ fn build_rows(
     rows.push(Row::blank());
     let last_idx = chapter.verses.len().saturating_sub(1);
     for (vi, verse) in chapter.verses.iter().enumerate() {
-        let highlighted = Some(verse.number) == highlight_verse;
+        let is_focus = verse.number == focus_verse;
+        let is_search_hit = Some(verse.number) == search_hit_verse;
         let wrapped = wrap_to_width(&verse.text, avail, settings);
         let pieces = if wrapped.is_empty() {
             vec![String::new()]
@@ -629,7 +659,8 @@ fn build_rows(
             let is_super_prefix =
                 style == VerseNumberStyle::Superscript && i == 0;
             rows.push(Row {
-                highlighted,
+                is_focus,
+                is_search_hit,
                 prefix,
                 content,
                 verse: Some(verse.number),
@@ -876,8 +907,8 @@ fn draw_bottom_bar(f: &mut Frame, app: &App, area: Rect, theme: &ResolvedTheme) 
                 spans.extend(hint_spans(&[
                     (":", "ref"),
                     ("/", "search"),
-                    ("↑↓", "change verse"),
-                    ("←→", "change chapter"),
+                    ("↑↓", "verse"),
+                    ("←→", "chapter"),
                 ]));
                 spans.push(Span::raw("  "));
                 spans.push(Span::styled(
@@ -901,10 +932,10 @@ fn draw_bottom_bar(f: &mut Frame, app: &App, area: Rect, theme: &ResolvedTheme) 
                 spans.extend(hint_spans(&[
                     (":", "ref"),
                     ("/", "search"),
-                    ("↑↓", "scroll"),
-                    ("←→", "change chapter"),
+                    ("↑↓", "verse"),
+                    ("←→", "chapter"),
+                    ("y", "yank"),
                     (",", "settings"),
-                    ("q", "quit"),
                     ("?", "help"),
                 ]));
                 spans.push(Span::raw(" "));
@@ -1156,9 +1187,9 @@ fn draw_help_overlay(f: &mut Frame, area: Rect) {
     };
     let lines = vec![
         header("Reading"),
-        row("↑ / ↓", "scroll line"),
-        row("PgUp / PgDn", "half-page"),
-        row("Home / End", "top / bottom of chapter"),
+        row("↑ / ↓", "move verse cursor"),
+        row("PgUp / PgDn", "jump 5 verses"),
+        row("Home / End", "first / last verse of chapter"),
         row("← / →", "previous / next chapter"),
         row("Shift+← / →", "previous / next book"),
         Line::from(""),
@@ -1324,6 +1355,9 @@ pub(super) struct ResolvedTheme {
     pub title_chapter: Color,
     pub verse_number: Color,
     pub verse_number_super: Color,
+    /// Subtle bg painted across the focused verse — always-on cursor.
+    pub focus_bg: Color,
+    /// Loud bg painted across the active search hit — overlay on top of focus.
     pub current_verse_fg: Color,
     pub current_verse_bg: Color,
     pub status_bar_dim: Color,
@@ -1339,6 +1373,7 @@ fn resolve_theme(s: &Settings) -> ResolvedTheme {
             title_chapter: Color::Yellow,
             verse_number: Color::Indexed(244),
             verse_number_super: Color::Indexed(244),
+            focus_bg: Color::Indexed(237),
             current_verse_fg: Color::Black,
             current_verse_bg: Color::Yellow,
             status_bar_dim: Color::Indexed(244),
@@ -1352,7 +1387,8 @@ fn resolve_theme(s: &Settings) -> ResolvedTheme {
             title_chapter: Color::Indexed(136), // yellow
             verse_number: Color::Indexed(243), // base01
             verse_number_super: Color::Indexed(243),
-            current_verse_fg: Color::Indexed(235), // base02
+            focus_bg: Color::Indexed(235), // base02
+            current_verse_fg: Color::Indexed(235),
             current_verse_bg: Color::Indexed(136),
             status_bar_dim: Color::Indexed(243),
         },
@@ -1364,6 +1400,7 @@ fn resolve_theme(s: &Settings) -> ResolvedTheme {
             title_chapter: Color::White,
             verse_number: Color::White,
             verse_number_super: Color::Gray,
+            focus_bg: Color::DarkGray,
             current_verse_fg: Color::Black,
             current_verse_bg: Color::White,
             status_bar_dim: Color::Gray,

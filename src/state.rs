@@ -12,7 +12,9 @@ use std::path::PathBuf;
 use crate::error::{Error, Result};
 use crate::storage::config_dir;
 
-const SCHEMA_VERSION: u32 = 1;
+// v2: replaced `scroll` (line index) with `focus_verse` (verse number) so
+// the cursor moves verse-by-verse; users on v1 files lose last position once.
+const SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct State {
@@ -44,7 +46,7 @@ pub struct LastPosition {
     pub translation: String,
     pub book_number: u8,
     pub chapter: u16,
-    pub scroll: u16,
+    pub focus_verse: u16,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -112,7 +112,11 @@ pub(crate) struct App {
     pub installed: Vec<TranslationInfo>,
     pub available: Vec<AvailableTranslation>,
     pub current: Option<BibleChapterReference>,
-    pub scroll: u16,
+    /// 1-indexed verse cursor — the verse the user is currently focused on.
+    /// Moves with `↑/↓`, drives both the on-screen highlight and the
+    /// viewport scroll (single-pane: verse pinned near top; parallel:
+    /// shared anchor between the two panes).
+    pub focus_verse: u16,
     pub mode: Mode,
     pub input: Input,
     pub status: String,
@@ -137,12 +141,11 @@ pub(crate) struct App {
     pub settings_cursor: usize,
 
     /// Parallel-view state. `parallel` is on iff both this is true *and*
-    /// `secondary_bible` is loaded. `verse_anchor` is the topmost-visible
-    /// verse number, shared between primary and secondary panes.
+    /// `secondary_bible` is loaded. The shared verse anchor between the two
+    /// panes is `focus_verse`.
     pub parallel: bool,
     pub secondary_bible: Option<Arc<Bible>>,
     pub secondary_id: Option<String>,
-    pub verse_anchor: u16,
     pub secondary_picker_cursor: usize,
 
     pub download: Option<DownloadState>,
@@ -175,8 +178,7 @@ pub(crate) struct NavSnapshot {
     pub translation: String,
     pub book_number: u8,
     pub chapter: u16,
-    pub scroll: u16,
-    pub verse_anchor: u16,
+    pub focus_verse: u16,
 }
 
 pub fn run(initial_translation: Option<String>) -> Result<()> {
@@ -287,7 +289,7 @@ impl App {
             installed,
             available,
             current: None,
-            scroll: 0,
+            focus_verse: 1,
             mode: Mode::Normal,
             input: Input::default(),
             status: String::new(),
@@ -306,7 +308,6 @@ impl App {
             parallel: false,
             secondary_bible: None,
             secondary_id: None,
-            verse_anchor: 1,
             secondary_picker_cursor: 0,
             download: None,
             event_tx,
@@ -355,16 +356,16 @@ impl App {
 
         self.load_translation(&id)?;
 
-        // After the default Genesis 1 / scroll=0 from load_translation, restore
-        // the saved chapter and scroll if they belong to the translation we
-        // just loaded.
+        // After the default Genesis 1 / focus_verse=1 from load_translation,
+        // restore the saved chapter and verse cursor if they belong to the
+        // translation we just loaded.
         if let Some(p) = saved_position {
             if p.translation == id {
                 if let Ok(book) = book_from_number(p.book_number) {
                     if let Ok(chap_u8) = u8::try_from(p.chapter) {
                         if let Ok(cr) = BibleChapterReference::new(book, chap_u8) {
                             self.current = Some(cr);
-                            self.scroll = p.scroll;
+                            self.focus_verse = p.focus_verse.max(1);
                             // load_translation set needs_clear; keep that.
                         }
                     }
@@ -412,12 +413,12 @@ impl App {
             None
         };
         let state = crate::state::State {
-            schema_version: 1,
+            schema_version: 2,
             last_position: Some(crate::state::LastPosition {
                 translation: bible.translation.id.clone(),
                 book_number: cr.book().number(),
                 chapter,
-                scroll: self.scroll,
+                focus_verse: self.focus_verse,
             }),
             parallel,
         };
@@ -433,8 +434,7 @@ impl App {
             translation: bible.translation.id.clone(),
             book_number: cr.book().number(),
             chapter,
-            scroll: self.scroll,
-            verse_anchor: self.verse_anchor,
+            focus_verse: self.focus_verse,
         })
     }
 
@@ -508,8 +508,7 @@ impl App {
         let cr = BibleChapterReference::new(book, chap_u8)
             .map_err(|_| anyhow::anyhow!("invalid chapter reference"))?;
         self.current = Some(cr);
-        self.scroll = snap.scroll;
-        self.verse_anchor = snap.verse_anchor;
+        self.focus_verse = snap.focus_verse.max(1);
         self.save_state();
         Ok(())
     }
@@ -523,7 +522,7 @@ impl App {
             .unwrap_or_else(|| get_bible_book_by_number(1).expect("Genesis"));
         self.current = BibleChapterReference::new(first_book, 1).ok();
         self.bible = Some(Arc::new(bible));
-        self.scroll = 0;
+        self.focus_verse = 1;
         self.mode = Mode::Normal;
         // Switching translations invalidates any in-flight search results
         // (different verse text → different hits).
@@ -644,67 +643,23 @@ impl App {
                 self.open_manager();
             }
             KeyCode::Char('t') if modless => self.cycle_translation(1),
-            KeyCode::Char('j') | KeyCode::Down => {
-                if self.parallel {
-                    self.shift_anchor(1);
-                } else {
-                    self.scroll = self.scroll.saturating_add(1);
-                }
-            }
-            KeyCode::Char('k') | KeyCode::Up => {
-                if self.parallel {
-                    self.shift_anchor(-1);
-                } else {
-                    self.scroll = self.scroll.saturating_sub(1);
-                }
-            }
+            KeyCode::Char('j') | KeyCode::Down => self.shift_focus(1),
+            KeyCode::Char('k') | KeyCode::Up => self.shift_focus(-1),
             KeyCode::Char('d') if k.modifiers.contains(KeyModifiers::CONTROL) => {
-                if self.parallel {
-                    self.shift_anchor(5);
-                } else {
-                    self.scroll = self.scroll.saturating_add(10);
-                }
+                self.shift_focus(5);
             }
             KeyCode::Char('u') if k.modifiers.contains(KeyModifiers::CONTROL) => {
-                if self.parallel {
-                    self.shift_anchor(-5);
-                } else {
-                    self.scroll = self.scroll.saturating_sub(10);
-                }
+                self.shift_focus(-5);
             }
             // Arrow + paging key surface (the user-facing one).
             KeyCode::Left if k.modifiers.contains(KeyModifiers::SHIFT) => self.go_book(-1),
             KeyCode::Right if k.modifiers.contains(KeyModifiers::SHIFT) => self.go_book(1),
             KeyCode::Left if k.modifiers.is_empty() => self.go_chapter(-1),
             KeyCode::Right if k.modifiers.is_empty() => self.go_chapter(1),
-            KeyCode::PageDown => {
-                if self.parallel {
-                    self.shift_anchor(5);
-                } else {
-                    self.scroll = self.scroll.saturating_add(10);
-                }
-            }
-            KeyCode::PageUp => {
-                if self.parallel {
-                    self.shift_anchor(-5);
-                } else {
-                    self.scroll = self.scroll.saturating_sub(10);
-                }
-            }
-            KeyCode::Home => {
-                if self.parallel {
-                    self.verse_anchor = 1;
-                } else {
-                    self.scroll = 0;
-                }
-            }
-            KeyCode::End => {
-                if self.parallel {
-                    self.verse_anchor = u16::MAX / 2;
-                } else {
-                    self.scroll = u16::MAX / 2;
-                }
-            }
+            KeyCode::PageDown => self.shift_focus(5),
+            KeyCode::PageUp => self.shift_focus(-5),
+            KeyCode::Home => self.focus_verse = 1,
+            KeyCode::End => self.focus_verse = self.max_verse_in_chapter(),
             // Vim-style fallbacks — kept silent (no hint surface) for
             // muscle-memory; arrow keys are the documented surface.
             KeyCode::Char('h') if modless => self.go_chapter(-1),
@@ -713,24 +668,14 @@ impl App {
             KeyCode::Char('L') => self.go_book(1),
             KeyCode::Char('g') if modless => {
                 if self.pending_g {
-                    if self.parallel {
-                        self.verse_anchor = 1;
-                    } else {
-                        self.scroll = 0;
-                    }
+                    self.focus_verse = 1;
                     self.pending_g = false;
                 } else {
                     self.pending_g = true;
                 }
                 return Ok(());
             }
-            KeyCode::Char('G') => {
-                if self.parallel {
-                    self.verse_anchor = u16::MAX / 2;
-                } else {
-                    self.scroll = u16::MAX / 2;
-                }
-            }
+            KeyCode::Char('G') => self.focus_verse = self.max_verse_in_chapter(),
             KeyCode::Char('n') if modless => self.advance_search_hit(1),
             KeyCode::Char('N') => self.advance_search_hit(-1),
             KeyCode::Char('b') if modless => self.bookmark_current_chapter(),
@@ -1029,9 +974,9 @@ impl App {
         }
     }
 
-    /// `y` keypress — copy the verse the user is most likely focused on.
+    /// `y` keypress — copy the verse under the focus cursor.
     fn yank_current_verse(&mut self) {
-        let v = self.focus_verse();
+        let v = self.focus_verse;
         self.yank_verses(v, v);
     }
 
@@ -1060,27 +1005,6 @@ impl App {
             return;
         }
         self.set_status(format!("unknown yank: :y {args}"));
-    }
-
-    /// Best guess for the verse the user has in focus right now: an active
-    /// search hit on this chapter wins; otherwise `verse_anchor` (which
-    /// holds the most recent jump target).
-    fn focus_verse(&self) -> u16 {
-        if let Some(cr) = self.current.as_ref() {
-            if let Some(vr) = self.search_hits.get(self.search_idx) {
-                if vr.book().number() == cr.book().number() {
-                    let cur_chap: u32 = cr.chapter().into();
-                    let hit_chap: u32 = vr.chapter().into();
-                    if cur_chap == hit_chap {
-                        let v: u32 = vr.verse().into();
-                        if let Ok(v) = u16::try_from(v) {
-                            return v;
-                        }
-                    }
-                }
-            }
-        }
-        self.verse_anchor.max(1)
     }
 
     fn yank_verses(&mut self, start: u16, end: u16) {
@@ -1160,15 +1084,11 @@ impl App {
             return;
         };
         // Pre-validate everything so we don't push to history on a no-op.
-        let Ok(book) = book_from_number(bm.book_number) else {
-            self.set_status("invalid bookmark");
-            return;
-        };
-        let Ok(chap_u8) = u8::try_from(bm.chapter) else {
-            self.set_status("invalid bookmark");
-            return;
-        };
-        let Ok(cr) = BibleChapterReference::new(book.clone(), chap_u8) else {
+        let Some(cr) = book_from_number(bm.book_number)
+            .ok()
+            .and_then(|book| u8::try_from(bm.chapter).ok().map(|c| (book, c)))
+            .and_then(|(book, c)| BibleChapterReference::new(book, c).ok())
+        else {
             self.set_status("invalid bookmark");
             return;
         };
@@ -1194,15 +1114,7 @@ impl App {
             }
         }
         self.current = Some(cr);
-        if let Some(v) = bm.verse {
-            if let Ok(vu8) = u8::try_from(v) {
-                if let Ok(vr) = BibleVerseReference::new(book, chap_u8, vu8) {
-                    self.scroll = nav::verse_scroll(&vr);
-                }
-            }
-        } else {
-            self.scroll = 0;
-        }
+        self.focus_verse = bm.verse.unwrap_or(1).max(1);
         self.mode = Mode::Normal;
         self.save_state();
     }
@@ -1263,13 +1175,23 @@ impl App {
         }
     }
 
-    fn shift_anchor(&mut self, dir: i32) {
-        let new = if dir >= 0 {
-            self.verse_anchor.saturating_add(dir as u16)
-        } else {
-            self.verse_anchor.saturating_sub((-dir) as u16)
-        };
-        self.verse_anchor = new.max(1);
+    /// Move the verse cursor by `dir` (signed). Clamps to [1, max_verse]
+    /// where `max_verse` is the count of verses in the current chapter.
+    fn shift_focus(&mut self, dir: i32) {
+        let cur = self.focus_verse as i32;
+        let max = self.max_verse_in_chapter() as i32;
+        let next = (cur + dir).clamp(1, max.max(1));
+        self.focus_verse = next as u16;
+    }
+
+    /// Last verse number of the current chapter, or 1 if no chapter is
+    /// loaded / the chapter is missing in this translation.
+    fn max_verse_in_chapter(&self) -> u16 {
+        self.bible
+            .as_ref()
+            .and_then(|b| self.current.as_ref().and_then(|cr| b.get_chapter(cr)))
+            .and_then(|c| c.verses.last().map(|v| v.number))
+            .unwrap_or(1)
     }
 
     fn toggle_parallel(&mut self) {
@@ -1451,25 +1373,22 @@ impl App {
                 }) {
                     self.push_history();
                     self.current = Some(cr);
-                    self.scroll = nav::verse_scroll(&vr);
                     let v_u32: u32 = vr.verse().into();
-                    self.verse_anchor = u16::try_from(v_u32).unwrap_or(1);
+                    self.focus_verse = u16::try_from(v_u32).unwrap_or(1).max(1);
                     moved = true;
                 }
             }
             Ok(BibleReferenceRepresentation::Single(BibleReference::BibleChapter(cr))) => {
                 self.push_history();
                 self.current = Some(cr);
-                self.scroll = 0;
-                self.verse_anchor = 1;
+                self.focus_verse = 1;
                 moved = true;
             }
             Ok(BibleReferenceRepresentation::Single(BibleReference::BibleBook(_))) => {
                 if let Ok(cr) = nav::first_chapter_of_parsed(q) {
                     self.push_history();
                     self.current = Some(cr);
-                    self.scroll = 0;
-                    self.verse_anchor = 1;
+                    self.focus_verse = 1;
                     moved = true;
                 }
             }
@@ -1546,9 +1465,8 @@ impl App {
         if let Ok(cr) = BibleChapterReference::new(vr.book(), chap) {
             self.push_history();
             self.current = Some(cr);
-            self.scroll = nav::verse_scroll(&vr);
             let v_u32: u32 = vr.verse().into();
-            self.verse_anchor = u16::try_from(v_u32).unwrap_or(1);
+            self.focus_verse = u16::try_from(v_u32).unwrap_or(1).max(1);
             self.save_state();
         }
     }
@@ -1560,8 +1478,7 @@ impl App {
         if let Some(next) = nav::shift_chapter(cur, dir) {
             self.push_history();
             self.current = Some(next);
-            self.scroll = 0;
-            self.verse_anchor = 1;
+            self.focus_verse = 1;
             self.save_state();
         }
     }
@@ -1573,8 +1490,7 @@ impl App {
         if let Some(next) = nav::shift_book(cur, dir) {
             self.push_history();
             self.current = Some(next);
-            self.scroll = 0;
-            self.verse_anchor = 1;
+            self.focus_verse = 1;
             self.save_state();
         }
     }
