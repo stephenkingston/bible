@@ -43,6 +43,9 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     if app.mode == Mode::Help {
         draw_help_overlay(f, area);
     }
+    if app.mode == Mode::PickBook {
+        draw_book_picker(f, app, area);
+    }
     if app.mode == Mode::PickSecondary {
         draw_pick_secondary(f, app, area);
     }
@@ -1011,6 +1014,7 @@ fn draw_bottom_bar(f: &mut Frame, app: &App, area: Rect, theme: &ResolvedTheme) 
                     ("/", "search"),
                     ("↑↓", "verse"),
                     ("←→", "chapter"),
+                    ("g", "book"),
                     ("y", "yank"),
                     (",", "settings"),
                     ("?", "help"),
@@ -1587,6 +1591,7 @@ fn draw_help_overlay(f: &mut Frame, area: Rect) {
         row("Home / End", "first / last verse of chapter"),
         row("← / →", "previous / next chapter"),
         row("Shift+← / →", "previous / next book"),
+        row("g", "open book picker"),
         Line::from(""),
         header("Lookup"),
         row(":", "jump to reference (e.g. :John 3:16)"),
@@ -1624,6 +1629,75 @@ fn draw_help_overlay(f: &mut Frame, area: Rect) {
         row("q", "quit"),
     ];
     f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
+}
+
+fn draw_book_picker(f: &mut Frame, app: &App, area: Rect) {
+    let popup = centered_rect(50, 70, area);
+    f.render_widget(Clear, popup);
+    let block = Block::default()
+        .title(" Jump to book ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan));
+    let inner = block.inner(popup);
+    f.render_widget(block, popup);
+
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(0), Constraint::Length(1)])
+        .split(inner);
+    let list_area = layout[0];
+    let visible = list_area.height as usize;
+    if visible == 0 {
+        return;
+    }
+
+    let total = 66usize;
+    let cur_book_num = app
+        .current
+        .as_ref()
+        .map(|cr| cr.book().number());
+    let scroll = compute_list_scroll(app.book_picker_cursor, total, visible);
+
+    for i in scroll..(scroll + visible).min(total) {
+        let row_idx = (i - scroll) as u16;
+        let row_area = Rect::new(list_area.x, list_area.y + row_idx, list_area.width, 1);
+        let book_num = (i + 1) as u8;
+        let Ok(book) = crate::reference::book_from_number(book_num) else {
+            continue;
+        };
+        let is_cursor = i == app.book_picker_cursor;
+        let is_current = cur_book_num == Some(book_num);
+
+        let row_style = if is_cursor {
+            Style::default().bg(Color::Indexed(236))
+        } else {
+            Style::default()
+        };
+        let mark = if is_current { "•" } else { " " };
+        let num_style = Style::default().add_modifier(Modifier::DIM);
+        let name_style = if is_current {
+            Style::default().fg(Color::Yellow).bold()
+        } else {
+            Style::default().fg(Color::Cyan)
+        };
+        let spans = vec![
+            Span::raw(" "),
+            Span::styled(mark.to_string(), Style::default().fg(Color::Yellow)),
+            Span::raw(" "),
+            Span::styled(format!("{:>2}", book_num), num_style),
+            Span::raw("  "),
+            Span::styled(book_display(&book), name_style),
+        ];
+        f.render_widget(Line::from(spans).style(row_style), row_area);
+    }
+
+    let hint = hint_line(&[
+        ("Enter", "jump"),
+        ("↑↓", "move"),
+        ("PgUp/PgDn", "page"),
+        ("Esc", "back"),
+    ]);
+    f.render_widget(hint, layout[1]);
 }
 
 fn draw_pick_secondary(f: &mut Frame, app: &App, area: Rect) {

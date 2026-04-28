@@ -65,6 +65,7 @@ pub(crate) enum Mode {
     Search,
     Manager,
     Bookmarks,
+    PickBook,
     PickSecondary,
     Settings,
     EditingNote,
@@ -156,7 +157,9 @@ pub(crate) struct App {
     pub last_search: String,
     pub searching: Option<SearchingState>,
 
-    pub pending_g: bool,
+    /// 0-indexed cursor into the 1..=66 book list shown by the `g` book
+    /// picker. Set to the current book's index when the picker opens.
+    pub book_picker_cursor: usize,
 
     pub manager_filter: Input,
     pub manager_cursor: usize,
@@ -358,7 +361,7 @@ impl App {
             search_idx: 0,
             last_search: String::new(),
             searching: None,
-            pending_g: false,
+            book_picker_cursor: 0,
             manager_filter: Input::default(),
             manager_cursor: 0,
             manager_list_state: ratatui::widgets::ListState::default(),
@@ -688,6 +691,7 @@ impl App {
             },
             Mode::NoTranslation => self.handle_no_translation(k),
             Mode::Bookmarks => self.handle_bookmarks(k),
+            Mode::PickBook => self.handle_pick_book(k),
             Mode::PickSecondary => self.handle_pick_secondary(k),
             Mode::Settings => self.handle_settings(k),
             Mode::EditingNote => self.handle_editing_note(k),
@@ -737,15 +741,7 @@ impl App {
             KeyCode::Char('l') if modless => self.go_chapter(1),
             KeyCode::Char('H') => self.go_book(-1),
             KeyCode::Char('L') => self.go_book(1),
-            KeyCode::Char('g') if modless => {
-                if self.pending_g {
-                    self.focus_verse = 1;
-                    self.pending_g = false;
-                } else {
-                    self.pending_g = true;
-                }
-                return Ok(());
-            }
+            KeyCode::Char('g') if modless => self.open_book_picker(),
             KeyCode::Char('G') => self.focus_verse = self.max_verse_in_chapter(),
             KeyCode::Char('n') if modless => self.advance_search_hit(1),
             KeyCode::Char('N') => self.advance_search_hit(-1),
@@ -771,9 +767,6 @@ impl App {
             KeyCode::Char('p') if modless => self.jump_to_today_reading(),
             KeyCode::Char('P') => self.open_plan_view(),
             _ => {}
-        }
-        if !matches!(k.code, KeyCode::Char('g')) {
-            self.pending_g = false;
         }
         Ok(())
     }
@@ -1634,6 +1627,62 @@ impl App {
         } else {
             self.open_secondary_picker();
         }
+    }
+
+    fn open_book_picker(&mut self) {
+        if self.bible.is_none() {
+            self.set_status("install a translation first (T)");
+            return;
+        }
+        // Pre-position the cursor on the current book so the picker opens
+        // "where you are" rather than always at Genesis.
+        let cur_book = self
+            .current
+            .as_ref()
+            .map(|cr| cr.book().number())
+            .unwrap_or(1);
+        self.book_picker_cursor = cur_book.saturating_sub(1) as usize;
+        self.mode = Mode::PickBook;
+    }
+
+    fn handle_pick_book(&mut self, k: KeyEvent) {
+        match k.code {
+            KeyCode::Esc | KeyCode::Char('q') => self.mode = Mode::Normal,
+            KeyCode::Down | KeyCode::Char('j') => {
+                self.book_picker_cursor = (self.book_picker_cursor + 1).min(65);
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.book_picker_cursor = self.book_picker_cursor.saturating_sub(1);
+            }
+            KeyCode::PageDown => {
+                self.book_picker_cursor = (self.book_picker_cursor + 10).min(65);
+            }
+            KeyCode::PageUp => {
+                self.book_picker_cursor = self.book_picker_cursor.saturating_sub(10);
+            }
+            KeyCode::Home | KeyCode::Char('g') => self.book_picker_cursor = 0,
+            KeyCode::End | KeyCode::Char('G') => self.book_picker_cursor = 65,
+            KeyCode::Enter => self.pick_book_at_cursor(),
+            _ => {}
+        }
+    }
+
+    fn pick_book_at_cursor(&mut self) {
+        let n = (self.book_picker_cursor + 1) as u8;
+        let Ok(book) = book_from_number(n) else {
+            self.set_status("invalid book");
+            return;
+        };
+        let Ok(cr) = BibleChapterReference::new(book, 1) else {
+            self.set_status("invalid reference");
+            return;
+        };
+        self.push_history();
+        self.current = Some(cr);
+        self.focus_verse = 1;
+        self.pin_focus = true;
+        self.mode = Mode::Normal;
+        self.save_state();
     }
 
     fn open_secondary_picker(&mut self) {
