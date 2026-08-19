@@ -103,14 +103,6 @@ fn same_chapter(a: &NavSnapshot, b: &NavSnapshot) -> bool {
         && a.chapter == b.chapter
 }
 
-/// Cross-platform clipboard write. Returns Err with a human-readable
-/// message on failure (e.g. headless tty with no DISPLAY).
-fn copy_to_clipboard(text: &str) -> std::result::Result<(), String> {
-    let mut cb = arboard::Clipboard::new().map_err(|e| e.to_string())?;
-    cb.set_text(text.to_string()).map_err(|e| e.to_string())?;
-    Ok(())
-}
-
 fn push_history(history: &mut Vec<String>, entry: &str) {
     let entry = entry.trim();
     if entry.is_empty() {
@@ -204,6 +196,15 @@ pub(crate) struct App {
 
     pub download: Option<DownloadState>,
     pub event_tx: Sender<AppEvent>,
+
+    /// Lazily-opened system clipboard used by `y` / `:y`. Kept alive for
+    /// the whole session: on X11 the clipboard contents only exist while
+    /// a `Clipboard` handle (and its request-server thread) is alive, so a
+    /// handle created and dropped per copy would empty the clipboard
+    /// before other apps could paste. `None` until the first yank (or
+    /// forever on a headless tty, where opening fails and we surface the
+    /// error as a status message instead of failing at startup).
+    pub clipboard: Option<arboard::Clipboard>,
 
     /// Set when the next render should fully repaint (terminal.clear). Used
     /// after switching translations so wide-char skip cells from the old
@@ -381,6 +382,7 @@ impl App {
             secondary_picker_cursor: 0,
             download: None,
             event_tx,
+            clipboard: None,
             needs_clear: false,
             jump_history: Vec::new(),
             jump_history_idx: None,
@@ -1284,6 +1286,20 @@ impl App {
         self.set_status(format!("unknown yank: :y {args}"));
     }
 
+    /// Cross-platform clipboard write. Returns Err with a human-readable
+    /// message on failure (e.g. headless tty with no DISPLAY). The handle
+    /// is cached in `self.clipboard` — see the field's doc comment for why
+    /// it must outlive the write (X11 ownership semantics).
+    fn copy_to_clipboard(&mut self, text: &str) -> std::result::Result<(), String> {
+        if self.clipboard.is_none() {
+            self.clipboard =
+                Some(arboard::Clipboard::new().map_err(|e| e.to_string())?);
+        }
+        let cb = self.clipboard.as_mut().expect("initialized above");
+        cb.set_text(text.to_string()).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
     fn yank_verses(&mut self, start: u16, end: u16) {
         let Some(bible) = self.bible.as_ref() else {
             self.set_status("no translation loaded");
@@ -1323,7 +1339,7 @@ impl App {
             "{}\n\n— {} ({})",
             body, ref_label, bible.translation.display_name
         );
-        match copy_to_clipboard(&payload) {
+        match self.copy_to_clipboard(&payload) {
             Ok(()) => self.set_status(format!(
                 "copied {} ({} chars)",
                 ref_label,
