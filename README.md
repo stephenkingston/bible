@@ -20,8 +20,9 @@ bible
 ```
 
 On first run the reader has no translations. Press `i` to install English KJV
-straight away, or `T` to browse the full catalog. You can also install from
-the shell:
+straight away, or `T` to browse the full catalog. `?` shows every key at any
+time, `Ctrl-K` opens the command palette, and `q` quits. You can also install
+from the shell:
 
 ```sh
 bible install kjv
@@ -29,28 +30,51 @@ bible install kjv
 
 ## Screenshots
 
-Reader with focus cursor + chapter pane:
+**Nocturne**, the default theme: borderless, with the focused verse marked in
+the margin and a status line that always shows how to get help and quit.
 
-![Reader](https://raw.githubusercontent.com/stephenkingston/bible/main/screenshots/reader.png)
+![Nocturne](https://raw.githubusercontent.com/stephenkingston/bible/main/screenshots/reader.png)
 
-Live-preview Settings modal (typography, theme, parallel divider):
+**Vellum**: an illuminated manuscript, set as running prose with a drop-cap
+chapter numeral and red verse numbers.
 
-![Settings](https://raw.githubusercontent.com/stephenkingston/bible/main/screenshots/settings.png)
+![Vellum](https://raw.githubusercontent.com/stephenkingston/bible/main/screenshots/vellum.png)
 
-Substring search across the whole text:
+**Gilt**: black and gold, with your installed translations as tabs.
+
+![Gilt](https://raw.githubusercontent.com/stephenkingston/bible/main/screenshots/gilt.png)
+
+**Daylight**: a light, printed-page theme that sets the text in two columns
+on wide terminals.
+
+![Daylight](https://raw.githubusercontent.com/stephenkingston/bible/main/screenshots/daylight.png)
+
+The command palette (`Ctrl-K`) takes a reference, a search or any command:
+
+![Palette](https://raw.githubusercontent.com/stephenkingston/bible/main/screenshots/palette.png)
+
+Every key on one card (`?`), sized to fit an 80×24 terminal:
+
+![Keys](https://raw.githubusercontent.com/stephenkingston/bible/main/screenshots/help.png)
+
+Search across the whole text, settings with a live preview, and the
+Bible-in-a-Year plan:
 
 ![Search](https://raw.githubusercontent.com/stephenkingston/bible/main/screenshots/search.png)
 
-Bible-in-a-Year plan, full-year view:
+![Settings](https://raw.githubusercontent.com/stephenkingston/bible/main/screenshots/settings.png)
 
 ![Year plan](https://raw.githubusercontent.com/stephenkingston/bible/main/screenshots/year-plan.png)
 
-Help overlay (`?`):
-
-![Help](https://raw.githubusercontent.com/stephenkingston/bible/main/screenshots/help.png)
-
 ## Highlights
 
+- **Seven themes**: Nocturne, Vellum, Gilt and Daylight, plus Classic,
+  Solarized dark and High contrast. Switch from Settings (`,`) or the palette.
+- **Prose or verse-per-line layout**, with drop-cap chapter numerals and
+  two columns on wide terminals.
+- **Command palette** (`Ctrl-K`): type `ps 23`, a search, or the name of any
+  command, theme or translation.
+- **Mouse**: the wheel moves through verses; click a verse to focus it.
 - **Verse cursor** with `↑/↓`, viewport scrolls only when the cursor leaves
   the visible area; mild bg highlight is always on so you can't lose the
   focus.
@@ -63,8 +87,8 @@ Help overlay (`?`):
   `p` jumps to today and marks it done; `P` opens the full-year list.
 - **Parallel view** (`|`) with two installed translations side-by-side,
   scroll-locked by verse.
-- **Settings modal** (`,`) with live preview — typography, theme presets,
-  width cap, parallel divider, justify, per-script letter padding.
+- **Settings modal** (`,`) with live preview: theme, layout, columns,
+  reading width, typography, per-script letter padding.
 - **Bookmarks, settings, reading state, plan progress** all in
   human-editable TOML under your platform's config directory.
 
@@ -99,9 +123,15 @@ bible                       # launches the TUI when stdout is a TTY
 | `P`                  | open the Bible-in-a-Year plan view                                |
 | `\|`                 | toggle parallel view (opens chooser if no secondary picked)       |
 | `\`                  | re-open the secondary-translation chooser to swap                 |
-| `,`                  | open Settings (typography, theme, width cap, parallel divider)    |
-| `?`                  | help overlay                                                      |
-| `q`                  | quit                                                              |
+| `,`                  | open Settings (theme, layout, typography, width, parallel divider)|
+| `Ctrl-K`             | command palette                                                   |
+| `?`                  | keys card                                                         |
+| `Esc`                | clear the search highlight                                        |
+| `q` or `:q`          | quit                                                              |
+
+The status line always ends with `? keys` and `q quit`. With the mouse on
+(the default), the wheel moves the verse cursor and clicking a verse focuses
+it; turn it off in Settings to get your terminal's own text selection back.
 
 Vim-style fallbacks (`hjkl`, `gg`/`G`, `H`/`L`, `Ctrl-d`/`Ctrl-u`) are also
 wired up silently for muscle memory; the arrow keys above are the
@@ -141,6 +171,30 @@ the chapter for context while writing.
 The clipboard payload is the verse text plus an attribution line:
 `"<text>\n\n— Book Chap:Verse (Translation)"`.
 
+### Command palette (`Ctrl-K`)
+
+One box for everything. Type a reference (`ps 23`, `jn 3:16`) and the first
+result goes there; type anything else and you get a search for it, along with
+every command, theme, layout and installed translation whose name matches.
+`↑`/`↓` choose, `Enter` runs, `Esc` closes.
+
+### Themes
+
+| Theme            | Look                                                              |
+| ---------------- | ----------------------------------------------------------------- |
+| `nocturne`       | the default: dark, borderless, periwinkle accents                 |
+| `vellum`         | illuminated manuscript: umber, rubricated verse numbers, prose    |
+| `gilt`           | black and gold, rounded frame, translation tabs                   |
+| `daylight`       | paper and ink, prose in two columns on wide terminals             |
+| `classic`        | the original bordered look in your terminal's colours             |
+| `solarized-dark` | Solarized accents                                                 |
+| `high-contrast`  | white on black                                                    |
+
+Themes use 24-bit colour where the terminal supports it (iTerm2, Ghostty,
+kitty, WezTerm, and most terminals that set `COLORTERM=truecolor`) and fall
+back to the nearest 256-colour shades elsewhere, such as macOS Terminal.
+Set `BIBLE_TRUECOLOR=1` or `0` to override the detection.
+
 ### Bookmarks (`B`)
 
 | Key            | Action                                              |
@@ -175,8 +229,8 @@ keys plus modifier-keyed letters.
 
 A "Bible in a Year" plan is generated for the current year on launch —
 1189 chapters split across 365 (or 366) days in canonical order. The
-top-right of the reader's title bar always shows today's reading, e.g.
-`📖 Today: Gen 14-15, Exo 1`.
+reader's header always shows today's reading, e.g. `today  Gen 14-15, Exo 1  ○`
+(the circle fills in once the day is done).
 
 | Key in reader  | Action                                                            |
 | -------------- | ----------------------------------------------------------------- |
@@ -220,9 +274,11 @@ What's tunable:
 - **Letter padding (per script)** — extra cells around each grapheme for
   Tamil, Devanagari, Arabic, Hebrew, CJK, plus a `default` for any other
   non-Latin script. Workaround for terminal fonts that overlap glyphs.
-- **Theme** — `default`, `solarized-dark`, `high-contrast`.
-- **Reader** — max-columns cap (centres the pane on wide terminals), default
-  translation on startup.
+- **Theme**: any of the seven above.
+- **Reading**: layout (`auto` follows the theme, or `verse per line` /
+  `prose`), columns (`auto` / `one` / `two`), drop cap, reading width
+  (`auto`, a fixed width, or `full width`), default translation on startup,
+  mouse.
 - **Parallel** — divider style between panes (`single` / `double` / `none`).
 
 Settings are saved to `<config_dir>/settings.toml` on close. The file is
@@ -302,7 +358,7 @@ ignored and defaults are used; the file is never clobbered):
 
 | File              | Source of truth for                                            |
 | ----------------- | -------------------------------------------------------------- |
-| `settings.toml`   | typography, theme, reader width cap, parallel divider, justify |
+| `settings.toml`   | theme, reading layout, columns, width, mouse, typography, parallel divider |
 | `bookmarks.toml`  | every bookmark you've made — chapter / verse + multi-line note |
 | `state.toml`      | last reading position (translation, book, chapter, focus verse) and your parallel-view pair, restored on next launch |
 | `plan.toml`       | reading-plan progress for the current year (which days you've completed) |
