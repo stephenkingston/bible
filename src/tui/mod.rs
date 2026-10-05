@@ -27,7 +27,7 @@ use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
 use ratatui::Terminal;
-use ratatui::backend::CrosstermBackend;
+use ratatui::backend::{Backend, ClearType, CrosstermBackend};
 use tui_input::Input;
 use tui_input::backend::crossterm::EventHandler;
 
@@ -258,6 +258,24 @@ fn setup_terminal() -> Result<Tui> {
     Ok(Terminal::new(CrosstermBackend::new(stdout))?)
 }
 
+/// ANSI clear + blank "previous" buffer → next draw is a full repaint.
+///
+/// Deliberately avoids `Terminal::clear`: since ratatui-core 0.1.2 it queries
+/// the cursor position (`ESC [6n`) so it can restore it afterwards. crossterm
+/// can only read that reply while holding its event-reader lock, which our
+/// input thread holds for as long as it is blocked in `event::read()`, so
+/// the query times out with "The cursor position could not be read within a
+/// normal duration". We're fullscreen on the alternate screen and never need
+/// the cursor restored.
+fn force_full_repaint(terminal: &mut Tui) -> Result<()> {
+    terminal.backend_mut().clear_region(ClearType::All)?;
+    // `swap_buffers` resets the last-drawn frame and makes it current; the
+    // other buffer is still blank from the previous draw's swap, so the next
+    // diff runs against an empty frame and repaints every cell.
+    terminal.swap_buffers();
+    Ok(())
+}
+
 fn teardown_terminal() -> Result<()> {
     let mut stdout = io::stdout();
     execute!(stdout, LeaveAlternateScreen)?;
@@ -292,8 +310,7 @@ fn run_app(terminal: &mut Tui, initial_translation: Option<String>) -> Result<()
 
     while app.mode != Mode::Quit {
         if app.needs_clear {
-            // ANSI clear + reset both buffers → next draw is a full repaint.
-            terminal.clear()?;
+            force_full_repaint(terminal)?;
             app.needs_clear = false;
         }
         terminal.draw(|f| draw::draw(f, &mut app))?;
