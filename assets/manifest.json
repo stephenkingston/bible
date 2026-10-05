@@ -3,6 +3,13 @@
   "tree_sha": null,
   "translations": [
     { "id": "EnglishKJBible", "display_name": "English KJV", "language": "English" },
+    { "id": "EnglishNIVBible", "display_name": "English NIV", "language": "English" },
+    { "id": "EnglishESVBible", "display_name": "English ESV", "language": "English" },
+    { "id": "EnglishNKJBible", "display_name": "English NKJV", "language": "English" },
+    { "id": "EnglishNLTBible", "display_name": "English NLT", "language": "English" },
+    { "id": "EnglishCSBBible", "display_name": "English CSB", "language": "English" },
+    { "id": "EnglishNASBBible", "display_name": "English NASB 1995", "language": "English" },
+    { "id": "EnglishNRSVBible", "display_name": "English NRSV", "language": "English" },
     { "id": "EnglishASVBible", "display_name": "English ASV", "language": "English" },
     { "id": "EnglishYLTBible", "display_name": "English YLT (Young's Literal)", "language": "English" },
     { "id": "EnglishDarbyBible", "display_name": "English Darby", "language": "English" },

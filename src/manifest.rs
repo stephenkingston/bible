@@ -142,6 +142,13 @@ pub fn refresh() -> Result<CachedManifest> {
 
 const ALIASES: &[(&str, &str)] = &[
     ("kjv", "EnglishKJBible"),
+    ("niv", "EnglishNIVBible"),
+    ("esv", "EnglishESVBible"),
+    ("nkjv", "EnglishNKJBible"),
+    ("nlt", "EnglishNLTBible"),
+    ("csb", "EnglishCSBBible"),
+    ("nasb", "EnglishNASBBible"),
+    ("nrsv", "EnglishNRSVBible"),
     ("asv", "EnglishASVBible"),
     ("ylt", "EnglishYLTBible"),
 ];
