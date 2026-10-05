@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use ratatui::Frame;
-use ratatui::buffer::Buffer;
+use ratatui::buffer::{Buffer, CellDiffOption};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -165,7 +165,7 @@ impl Widget for SeamOverlay {
             if let Some(cell) = buf.cell_mut((self.x, y)) {
                 cell.set_symbol(self.symbol)
                     .set_style(Style::default().fg(self.color));
-                cell.set_skip(false);
+                cell.set_diff_option(CellDiffOption::None);
             }
         }
     }
@@ -549,7 +549,6 @@ impl Widget for ChapterRow<'_> {
             if let Some(cell) = buf.cell_mut((x, y)) {
                 cell.reset();
                 cell.set_symbol(" ").set_style(self.row_bg);
-                cell.set_skip(false);
             }
         }
         // Prefix is always ASCII or Unicode-superscript digits, both
@@ -596,7 +595,7 @@ fn write_graphemes(
         }
         for i in 1..w {
             if let Some(cell) = buf.cell_mut((x + i, y)) {
-                cell.set_symbol("").set_skip(true).set_style(style);
+                cell.set_symbol("").set_diff_option(CellDiffOption::Skip).set_style(style);
             }
         }
         x += w;
