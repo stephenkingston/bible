@@ -12,6 +12,7 @@ mod note_editor;
 mod palette;
 mod rows;
 mod stderr_redirect;
+mod tamil;
 mod theme;
 
 pub(crate) use note_editor::{NoteEditor, NoteEditorTarget};
@@ -281,7 +282,38 @@ fn setup_terminal() -> Result<Tui> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
+    if let Some(m) = probe_mark_widths(&mut stdout) {
+        rows::set_mark_widths(m);
+    }
     Ok(Terminal::new(CrosstermBackend::new(stdout))?)
+}
+
+/// Measure how many cells the terminal gives a syllable with a spacing
+/// vowel sign (Tamil கி, கா): print it hidden and read the cursor back.
+/// Runs before the input thread exists, because a cursor query needs the
+/// event-reader lock that thread holds. `None` if the terminal doesn't
+/// answer, in which case `unicode-width` is trusted as before.
+fn probe_mark_widths(out: &mut Stdout) -> Option<rows::MarkWidths> {
+    fn measure(out: &mut Stdout, s: &str) -> Option<u16> {
+        use crossterm::style::{Attribute, Print, SetAttribute};
+        execute!(
+            out,
+            crossterm::cursor::MoveTo(0, 0),
+            SetAttribute(Attribute::Hidden),
+            Print(s),
+            SetAttribute(Attribute::Reset)
+        )
+        .ok()?;
+        crossterm::cursor::position().ok().map(|(x, _)| x)
+    }
+    let spacing = measure(out, "\u{0B95}\u{0BBF}");
+    let extending = spacing.and_then(|_| measure(out, "\u{0B95}\u{0BBE}"));
+    let _ = execute!(
+        out,
+        crossterm::terminal::Clear(crossterm::terminal::ClearType::All),
+        crossterm::cursor::MoveTo(0, 0)
+    );
+    Some(rows::MarkWidths { spacing: spacing? >= 2, extending: extending? >= 2 })
 }
 
 /// ANSI clear + blank "previous" buffer → next draw is a full repaint.

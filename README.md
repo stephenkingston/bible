@@ -271,9 +271,12 @@ What's tunable:
 - **Typography** — justify text (on by default), word padding, verse
   spacing, line spacing, verse-number style (`inline-bold` /
   `superscript` / `hidden`).
-- **Letter padding (per script)** — extra cells around each grapheme for
+- **Letter padding (per script)** — extra cells after each grapheme for
   Tamil, Devanagari, Arabic, Hebrew, CJK, plus a `default` for any other
-  non-Latin script. Workaround for terminal fonts that overlap glyphs.
+  non-Latin script, for terminal fonts whose glyphs still overlap. Tamil
+  already gets room for each syllable's glyph, and the reader measures at
+  startup how your terminal sizes syllables with vowel signs, so text lines
+  up whichever way it does.
 - **Theme**: any of the seven above.
 - **Reading**: layout (`auto` follows the theme, or `verse per line` /
   `prose`), columns (`auto` / `one` / `two`), drop cap, reading width

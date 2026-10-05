@@ -2,10 +2,14 @@
 //! verse-per-line layout or running prose, and the width/wrapping helpers
 //! both share with the renderer.
 
+use std::num::NonZeroU16;
+use std::sync::OnceLock;
+
 use ratatui::buffer::{Buffer, CellDiffOption};
 use ratatui::style::Style;
+use unicode_properties::{GeneralCategory, UnicodeGeneralCategory};
 use unicode_segmentation::UnicodeSegmentation;
-use unicode_width::UnicodeWidthStr;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::bible::Chapter;
 use crate::settings::{ScriptPadding, Settings, VerseNumberStyle};
@@ -329,10 +333,50 @@ pub(super) fn first_row_for_verse(rows: &[Row], target: u16) -> usize {
         .unwrap_or_else(|| rows.len().saturating_sub(1))
 }
 
-/// Write `text` one grapheme cluster at a time, advancing by
-/// `display_width()` per grapheme, and return the next column. Trailing
-/// cells of wide graphemes are marked skip so the terminal draws the glyph
-/// across both.
+/// How the terminal sizes a grapheme with a spacing vowel sign (General
+/// Category Mc: Tamil கி, Devanagari कि). Terminals disagree: some give the
+/// sign its own cell, others draw it on its consonant. Measured once at
+/// startup; see `tui::probe_mark_widths`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct MarkWidths {
+    /// Signs `unicode-width` counts as a cell (Tamil ி).
+    pub spacing: bool,
+    /// Signs `unicode-width` counts as zero because they extend the
+    /// grapheme (Tamil ா).
+    pub extending: bool,
+}
+
+static MARK_WIDTHS: OnceLock<MarkWidths> = OnceLock::new();
+
+pub(crate) fn set_mark_widths(m: MarkWidths) {
+    let _ = MARK_WIDTHS.set(m);
+}
+
+/// Cells the terminal advances for grapheme `g`: `unicode-width`'s answer,
+/// corrected for spacing marks by `marks` (no measurement means trusting
+/// `unicode-width`).
+fn width_with(g: &str, marks: Option<MarkWidths>) -> usize {
+    let base = UnicodeWidthStr::width(g);
+    let Some(m) = marks else { return base };
+    let mut adjust = 0isize;
+    for c in g.chars().skip(1) {
+        if c.general_category() != GeneralCategory::SpacingMark {
+            continue;
+        }
+        let counted = c.width() == Some(1);
+        let terminal = if counted { m.spacing } else { m.extending };
+        adjust += terminal as isize - counted as isize;
+    }
+    if base == 0 { 0 } else { (base as isize + adjust).max(1) as usize }
+}
+
+/// Write `text` one grapheme cluster at a time and return the next column.
+///
+/// Each grapheme takes the cells the terminal will actually advance; when
+/// that differs from what ratatui would assume (it trusts `unicode-width`),
+/// the cell carries a forced width so ratatui's diff and cursor tracking
+/// agree with the terminal. Cells under a wide glyph are skipped; the room
+/// a glyph needs beyond that is written as real spaces so it is painted.
 pub(super) fn write_graphemes(
     buf: &mut Buffer,
     mut x: u16,
@@ -342,52 +386,79 @@ pub(super) fn write_graphemes(
     style: Style,
     settings: &Settings,
 ) -> u16 {
-    for g in UnicodeSegmentation::graphemes(text, true) {
-        let w = display_width(g, settings) as u16;
+    for (g, term, cells) in grapheme_cells(text, settings) {
+        let w = term as u16;
         if w == 0 {
             continue;
         }
-        if x + w > x_end {
+        let pad = (cells as u16).saturating_sub(w);
+        if x + w + pad > x_end {
             break;
         }
         if let Some(cell) = buf.cell_mut((x, y)) {
             cell.set_symbol(g).set_style(style);
+            if usize::from(w) != UnicodeWidthStr::width(g)
+                && let Some(nz) = NonZeroU16::new(w)
+            {
+                cell.set_diff_option(CellDiffOption::ForcedWidth(nz));
+            }
         }
         for i in 1..w {
             if let Some(cell) = buf.cell_mut((x + i, y)) {
                 cell.set_symbol("").set_diff_option(CellDiffOption::Skip).set_style(style);
             }
         }
-        x += w;
+        for i in 0..pad {
+            if let Some(cell) = buf.cell_mut((x + w + i, y)) {
+                cell.set_symbol(" ").set_style(style);
+            }
+        }
+        x += w + pad;
     }
     x
 }
 
 pub(super) fn str_width(s: &str, settings: &Settings) -> usize {
-    UnicodeSegmentation::graphemes(s, true)
-        .map(|g| display_width(g, settings))
-        .sum()
+    grapheme_cells(s, settings).iter().map(|(_, _, cells)| cells).sum()
 }
 
-/// Display width for a single grapheme cluster.
-///
-/// Trusts `unicode-width` for every script — no automatic inflation, not
-/// even for Tamil. Some monospace fonts overflow declared cell widths
-/// for complex scripts, but rather than baking in a hardcoded fix,
-/// users tune that via `settings.typography.script_letter_padding`
-/// per-script. ASCII bytes and superscript digits short-circuit out.
+/// Each grapheme of `text` with the cells the terminal advances for it and
+/// the cells it occupies on screen (the same, unless it needs room for its
+/// glyph or letter padding).
+pub(super) fn grapheme_cells<'a>(text: &'a str, settings: &Settings) -> Vec<(&'a str, usize, usize)> {
+    cells_with(text, settings, MARK_WIDTHS.get().copied())
+}
+
+/// How far a Tamil glyph may run into the next syllable's cell. A terminal
+/// draws every glyph from a cell boundary, so a syllable gets the fewest
+/// whole cells that hold its glyph to within this much; side bearings keep
+/// that small an overlap from touching the next letter.
+const GLYPH_OVERLAP: f32 = 0.4;
+
+fn cells_with<'a>(text: &'a str, settings: &Settings, marks: Option<MarkWidths>) -> Vec<(&'a str, usize, usize)> {
+    UnicodeSegmentation::graphemes(text, true)
+        .map(|g| {
+            let term = width_with(g, marks);
+            if term == 0 {
+                return (g, 0, 0);
+            }
+            let glyph = super::tamil::width(g).map_or(term, |w| (w - GLYPH_OVERLAP).ceil().max(1.0) as usize);
+            (g, term, glyph.max(term) + padding_cells(g, settings))
+        })
+        .collect()
+}
+
+/// Cells a single grapheme occupies on its own; see [`grapheme_cells`].
 pub(super) fn display_width(g: &str, settings: &Settings) -> usize {
-    let raw = UnicodeWidthStr::width(g);
-    if raw == 0 {
+    grapheme_cells(g, settings).first().map_or(0, |(_, _, cells)| *cells)
+}
+
+/// Extra cells after `g` from the per-script letter padding setting.
+fn padding_cells(g: &str, settings: &Settings) -> usize {
+    if g.bytes().all(|b| b < 0x80) || g.chars().all(is_super_digit) {
         return 0;
     }
-    if g.bytes().all(|b| b < 0x80) {
-        return raw;
-    }
-    if g.chars().all(is_super_digit) {
-        return raw;
-    }
-    raw + script_padding_cells(g, &settings.typography.script_letter_padding) as usize
+    script_padding_cells(g, &settings.typography.script_letter_padding) as usize
 }
 
 fn is_super_digit(c: char) -> bool {
@@ -581,6 +652,42 @@ mod tests {
 
     fn row_width(row: &Row, s: &Settings) -> usize {
         row.segs.iter().map(|g| str_width(&g.text, s)).sum()
+    }
+
+    #[test]
+    fn tamil_syllables_get_room_for_their_glyphs() {
+        let s = Settings::default();
+        let word = "இருந்தது";
+        let on_base = Some(MarkWidths { spacing: false, extending: false });
+        for marks in [on_base, None] {
+            for (g, term, cells) in cells_with(word, &s, marks) {
+                let w = super::super::tamil::width(g).unwrap();
+                // Never less than the terminal advances, never so little the
+                // glyph runs well into the next syllable, never a spare cell.
+                assert!(cells >= term);
+                assert!(cells as f32 >= w - GLYPH_OVERLAP, "{g}: {cells} for {w}");
+                assert!(cells == term || (cells as f32) < w - GLYPH_OVERLAP + 1.0, "{g}");
+            }
+        }
+    }
+
+    #[test]
+    fn spacing_marks_follow_the_measured_terminal() {
+        let ki = "\u{0B95}\u{0BBF}"; // கி: unicode-width says 2
+        let kaa = "\u{0B95}\u{0BBE}"; // கா: unicode-width says 1
+        let pulli = "\u{0B95}\u{0BCD}"; // க்: virama, never a cell
+        assert_eq!((width_with(ki, None), width_with(kaa, None)), (2, 1));
+        // tmux, macOS wcwidth: signs sit on their consonant.
+        let on_base = Some(MarkWidths { spacing: false, extending: false });
+        assert_eq!((width_with(ki, on_base), width_with(kaa, on_base)), (1, 1));
+        // Terminals that give every spacing sign a cell.
+        let own_cell = Some(MarkWidths { spacing: true, extending: true });
+        assert_eq!((width_with(ki, own_cell), width_with(kaa, own_cell)), (2, 2));
+        for m in [None, on_base, own_cell] {
+            assert_eq!(width_with(pulli, m), 1);
+            assert_eq!(width_with("中", m), 2);
+            assert_eq!(width_with("a", m), 1);
+        }
     }
 
     #[test]
