@@ -5,10 +5,14 @@
 //! `crossterm`. Downloads run on a worker thread that pushes progress
 //! through an `mpsc::Sender<AppEvent>` consumed by the main loop.
 
+mod chrome;
 mod draw;
 mod nav;
 mod note_editor;
+mod palette;
+mod rows;
 mod stderr_redirect;
+mod theme;
 
 pub(crate) use note_editor::{NoteEditor, NoteEditorTarget};
 
@@ -20,7 +24,8 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use crossterm::event::{
-    self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
+    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind,
+    KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
 use crossterm::execute;
 use crossterm::terminal::{
@@ -49,6 +54,17 @@ pub(crate) enum AppEvent {
     DownloadDone { id: String, result: std::result::Result<TranslationInfo, String> },
     SearchDone { query: String, hits: Vec<BibleVerseReference> },
     CatalogRefreshed(std::result::Result<Vec<AvailableTranslation>, String>),
+    Mouse(MouseEvent),
+}
+
+/// Screen cells showing text from `verse`, recorded while drawing so a
+/// click can focus the verse under the pointer.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ClickZone {
+    pub y: u16,
+    pub x0: u16,
+    pub x1: u16,
+    pub verse: u16,
 }
 
 pub(crate) const SPINNER_FRAMES: &[&str] = &["|", "/", "-", "\\"];
@@ -72,6 +88,7 @@ pub(crate) enum Mode {
     EditingNote,
     Plan,
     Help,
+    Palette,
     NoTranslation,
     Quit,
 }
@@ -163,6 +180,12 @@ pub(crate) struct App {
     /// 0-indexed cursor into the 1..=66 book list shown by the `g` book
     /// picker. Set to the current book's index when the picker opens.
     pub book_picker_cursor: usize,
+
+    /// Ctrl-K palette input and highlighted row.
+    pub palette_input: Input,
+    pub palette_cursor: usize,
+    /// Rebuilt every frame by the reading pane.
+    pub click_zones: Vec<ClickZone>,
 
     pub manager_filter: Input,
     pub manager_cursor: usize,
@@ -281,7 +304,7 @@ fn force_full_repaint(terminal: &mut Tui) -> Result<()> {
 
 fn teardown_terminal() -> Result<()> {
     let mut stdout = io::stdout();
-    execute!(stdout, LeaveAlternateScreen)?;
+    execute!(stdout, DisableMouseCapture, LeaveAlternateScreen)?;
     disable_raw_mode()?;
     Ok(())
 }
@@ -311,7 +334,18 @@ fn run_app(terminal: &mut Tui, initial_translation: Option<String>) -> Result<()
     let mut app = App::new(tx.clone())?;
     app.choose_initial_translation(initial_translation)?;
 
+    let mut mouse_on = false;
     while app.mode != Mode::Quit {
+        // Follow the setting live; capturing the mouse takes over the
+        // terminal's own text selection, so it has an off switch.
+        if app.settings.reader.mouse != mouse_on {
+            mouse_on = app.settings.reader.mouse;
+            if mouse_on {
+                execute!(terminal.backend_mut(), EnableMouseCapture)?;
+            } else {
+                execute!(terminal.backend_mut(), DisableMouseCapture)?;
+            }
+        }
         if app.needs_clear {
             force_full_repaint(terminal)?;
             app.needs_clear = false;
@@ -340,6 +374,20 @@ fn spawn_input_thread(tx: Sender<AppEvent>) {
                 }
                 Ok(Event::Resize(_, _)) => {
                     let _ = tx.send(AppEvent::Tick);
+                }
+                // Capture reports every pointer movement; only wheel and
+                // left click mean anything here.
+                Ok(Event::Mouse(m))
+                    if matches!(
+                        m.kind,
+                        MouseEventKind::ScrollUp
+                            | MouseEventKind::ScrollDown
+                            | MouseEventKind::Down(MouseButton::Left)
+                    ) =>
+                {
+                    if tx.send(AppEvent::Mouse(m)).is_err() {
+                        break;
+                    }
                 }
                 Ok(_) => {}
                 Err(_) => break,
@@ -383,6 +431,9 @@ impl App {
             last_search: String::new(),
             searching: None,
             book_picker_cursor: 0,
+            palette_input: Input::default(),
+            palette_cursor: 0,
+            click_zones: Vec::new(),
             manager_filter: Input::default(),
             manager_cursor: 0,
             manager_list_state: ratatui::widgets::ListState::default(),
@@ -415,7 +466,6 @@ impl App {
     fn choose_initial_translation(&mut self, requested: Option<String>) -> Result<()> {
         if self.installed.is_empty() {
             self.mode = Mode::NoTranslation;
-            self.set_status("No translations installed. Press `i` to install KJV, or `T` to browse.");
             return Ok(());
         }
 
@@ -702,6 +752,7 @@ impl App {
                     Err(e) => self.set_status(format!("couldn't fetch the catalog: {e}")),
                 }
             }
+            AppEvent::Mouse(m) => self.handle_mouse(m),
         }
         Ok(())
     }
@@ -712,17 +763,32 @@ impl App {
             return Ok(());
         }
 
+        let ctrl_k = k.modifiers.contains(KeyModifiers::CONTROL) && k.code == KeyCode::Char('k');
+        if ctrl_k && matches!(self.mode, Mode::Normal | Mode::NoTranslation | Mode::Help) {
+            self.open_palette();
+            return Ok(());
+        }
+
         match self.mode {
             Mode::Normal => self.handle_normal(k)?,
             Mode::Jump => self.handle_jump(k),
             Mode::Search => self.handle_search(k),
             Mode::Manager => self.handle_manager(k),
             Mode::Help => match k.code {
-                KeyCode::Char('?') | KeyCode::Esc | KeyCode::Char('q') => {
-                    self.mode = Mode::Normal
+                // The keys card lists `q quit`; it means it.
+                KeyCode::Char('q') => self.mode = Mode::Quit,
+                KeyCode::Char('?') | KeyCode::Esc => self.mode = self.home_mode(),
+                // Anything else closes the card and does its usual job.
+                _ => {
+                    self.mode = self.home_mode();
+                    if self.mode == Mode::Normal {
+                        self.handle_normal(k)?;
+                    } else {
+                        self.handle_no_translation(k);
+                    }
                 }
-                _ => {}
             },
+            Mode::Palette => self.handle_palette(k),
             Mode::NoTranslation => self.handle_no_translation(k),
             Mode::Bookmarks => self.handle_bookmarks(k),
             Mode::PickBook => self.handle_pick_book(k),
@@ -740,6 +806,15 @@ impl App {
         match k.code {
             KeyCode::Char('q') if modless => self.mode = Mode::Quit,
             KeyCode::Char('?') if modless => self.mode = Mode::Help,
+            KeyCode::Esc => {
+                if self.search_hits.is_empty() {
+                    // Nothing to back out of: Esc is usually someone
+                    // looking for the exit.
+                    self.set_status("q quits · ? shows keys · Ctrl-K opens the palette");
+                } else {
+                    self.clear_search();
+                }
+            }
             KeyCode::Char(':') if modless => {
                 self.input = Input::default();
                 self.mode = Mode::Jump;
@@ -811,8 +886,21 @@ impl App {
             KeyCode::Char('i') => self.start_install("EnglishKJBible"),
             KeyCode::Char('T') => self.open_manager(),
             KeyCode::Char('?') => self.mode = Mode::Help,
+            KeyCode::Esc => self.set_status("q quits · ? shows keys"),
             _ => {}
         }
+    }
+
+    /// Where Esc lands: the reader, or the welcome screen before anything
+    /// is installed.
+    fn home_mode(&self) -> Mode {
+        if self.bible.is_some() { Mode::Normal } else { Mode::NoTranslation }
+    }
+
+    fn clear_search(&mut self) {
+        self.search_hits.clear();
+        self.search_idx = 0;
+        self.set_status("search cleared");
     }
 
     fn handle_jump(&mut self, k: KeyEvent) {
@@ -829,7 +917,9 @@ impl App {
                 self.jump_history_idx = None;
                 push_history(&mut self.jump_history, &q);
                 let trimmed = q.trim();
-                if trimmed == "b" {
+                if matches!(trimmed, "q" | "q!" | "qa" | "qa!" | "quit" | "wq" | "x" | "exit") {
+                    self.mode = Mode::Quit;
+                } else if trimmed == "b" {
                     self.bookmark_current_chapter();
                 } else if let Some(rest) = trimmed.strip_prefix("b ") {
                     self.handle_bookmark_command(rest.trim());
@@ -1031,13 +1121,171 @@ impl App {
         let n = self.installed.len() as i32;
         let next = (((pos as i32 + dir) % n) + n) % n;
         let id = self.installed[next as usize].id.clone();
+        self.switch_translation(&id);
+    }
+
+    /// Load another installed translation and stay on the same chapter and
+    /// verse when it has them.
+    fn switch_translation(&mut self, id: &str) {
+        let place = self.current.clone().map(|cr| (cr, self.focus_verse));
         self.push_history();
-        match self.load_translation(&id) {
+        match self.load_translation(id) {
             Ok(()) => {
-                self.set_status(format!("switched to {id}"));
+                if let Some((cr, verse)) = place {
+                    if self.bible.as_ref().is_some_and(|b| b.get_chapter(&cr).is_some()) {
+                        self.current = Some(cr);
+                        self.focus_verse = verse;
+                    }
+                }
+                let name = self.bible.as_ref().map(|b| b.translation.display_name.clone()).unwrap_or_default();
+                self.set_status(format!("reading {name}"));
                 self.save_state();
             }
             Err(e) => self.set_status(format!("load failed: {e}")),
+        }
+    }
+
+    fn open_palette(&mut self) {
+        self.palette_input = Input::default();
+        self.palette_cursor = 0;
+        self.status.clear();
+        self.mode = Mode::Palette;
+    }
+
+    fn handle_palette(&mut self, k: KeyEvent) {
+        let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
+        match k.code {
+            KeyCode::Esc => self.mode = self.home_mode(),
+            KeyCode::Char('k') if ctrl => self.mode = self.home_mode(),
+            KeyCode::Down => self.palette_cursor += 1,
+            KeyCode::Char('n') if ctrl => self.palette_cursor += 1,
+            KeyCode::Up => self.palette_cursor = self.palette_cursor.saturating_sub(1),
+            KeyCode::Char('p') if ctrl => self.palette_cursor = self.palette_cursor.saturating_sub(1),
+            KeyCode::PageDown => self.palette_cursor += 8,
+            KeyCode::PageUp => self.palette_cursor = self.palette_cursor.saturating_sub(8),
+            KeyCode::Enter => {
+                let items = chrome::palette_items(self);
+                if let Some(item) = items.get(self.palette_cursor.min(items.len().saturating_sub(1))) {
+                    let action = item.action.clone();
+                    self.mode = self.home_mode();
+                    self.run_palette_action(action);
+                }
+            }
+            _ => {
+                let _ = self.palette_input.handle_event(&Event::Key(k));
+                self.palette_cursor = 0;
+            }
+        }
+        let n = chrome::palette_items(self).len();
+        self.palette_cursor = self.palette_cursor.min(n.saturating_sub(1));
+    }
+
+    fn run_palette_action(&mut self, action: palette::Action) {
+        use palette::{Action, Cmd};
+        match action {
+            Action::Jump(q) => {
+                push_history(&mut self.jump_history, &q);
+                self.jump_to(&q);
+            }
+            Action::Search(q) => {
+                push_history(&mut self.search_history, &q);
+                self.run_search(&q);
+            }
+            Action::Translation(id) => self.switch_translation(&id),
+            Action::Theme(preset) => {
+                self.settings.theme.preset = preset;
+                self.persist_settings(format!("theme: {}", preset.label()));
+            }
+            Action::Layout(layout) => {
+                self.settings.reader.layout = layout;
+                self.persist_settings("layout changed".to_string());
+            }
+            Action::Columns(columns) => {
+                self.settings.reader.columns = columns;
+                self.persist_settings("columns changed".to_string());
+            }
+            Action::Run(cmd) => match cmd {
+                Cmd::GoTo => {
+                    self.input = Input::default();
+                    self.mode = Mode::Jump;
+                }
+                Cmd::Search => {
+                    self.input = Input::default();
+                    self.mode = Mode::Search;
+                }
+                Cmd::PickBook => self.open_book_picker(),
+                Cmd::Today => self.jump_to_today_reading(),
+                Cmd::Parallel => self.toggle_parallel(),
+                Cmd::SwapParallel => self.open_secondary_picker(),
+                Cmd::NextTranslation => self.cycle_translation(1),
+                Cmd::Translations => self.open_manager(),
+                Cmd::InstallKjv => self.start_install("EnglishKJBible"),
+                Cmd::Bookmark => self.bookmark_current_chapter(),
+                Cmd::Bookmarks => self.open_bookmarks(),
+                Cmd::CopyVerse => self.yank_current_verse(),
+                Cmd::Plan => self.open_plan_view(),
+                Cmd::Back => self.nav_back(),
+                Cmd::Forward => self.nav_forward(),
+                Cmd::ClearSearch => self.clear_search(),
+                Cmd::Settings => self.open_settings(),
+                Cmd::Keys => self.mode = Mode::Help,
+                Cmd::Quit => self.mode = Mode::Quit,
+            },
+        }
+    }
+
+    /// Save settings changed outside the Settings screen.
+    fn persist_settings(&mut self, status: String) {
+        self.needs_clear = true;
+        match crate::settings::save(&self.settings) {
+            Ok(()) => self.set_status(status),
+            Err(e) => self.set_status(format!("settings save failed: {e}")),
+        }
+    }
+
+    fn handle_mouse(&mut self, m: MouseEvent) {
+        match m.kind {
+            MouseEventKind::ScrollDown => self.scroll_by(1),
+            MouseEventKind::ScrollUp => self.scroll_by(-1),
+            MouseEventKind::Down(MouseButton::Left) if self.mode == Mode::Normal => {
+                let hit = self
+                    .click_zones
+                    .iter()
+                    .find(|z| z.y == m.row && m.column >= z.x0 && m.column < z.x1);
+                if let Some(z) = hit {
+                    self.focus_verse = z.verse;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// One wheel notch: moves whatever cursor the current screen has.
+    fn scroll_by(&mut self, dir: i32) {
+        let step = |v: usize, max: usize| -> usize {
+            (v as i64 + dir as i64).clamp(0, max.saturating_sub(1) as i64) as usize
+        };
+        match self.mode {
+            Mode::Normal => self.shift_focus(dir),
+            Mode::Manager => self.manager_cursor = step(self.manager_cursor, self.filtered_indices().len()),
+            Mode::Bookmarks => {
+                self.bookmarks_cursor = step(self.bookmarks_cursor, self.bookmarks.len());
+                self.bookmarks_note_scroll = 0;
+            }
+            Mode::Plan => self.plan_cursor = step(self.plan_cursor, self.plan.days.len()),
+            Mode::PickBook => self.book_picker_cursor = step(self.book_picker_cursor, 66),
+            Mode::PickSecondary => {
+                let n = self.installed.len().saturating_sub(1);
+                self.secondary_picker_cursor = step(self.secondary_picker_cursor, n);
+            }
+            Mode::Palette => {
+                let n = chrome::palette_items(self).len();
+                self.palette_cursor = step(self.palette_cursor, n);
+            }
+            Mode::Settings => {
+                self.settings_cursor = step(self.settings_cursor, crate::tui::draw::SETTINGS_ITEMS.len());
+            }
+            _ => {}
         }
     }
 

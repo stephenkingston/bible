@@ -109,29 +109,107 @@ pub struct ThemeSettings {
     pub preset: ThemePreset,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ThemePreset {
-    Default,
+    /// Settings files written before themes existed say `default`, which was
+    /// only ever the default, not a choice; it follows the current default.
+    #[default]
+    #[serde(alias = "default")]
+    Nocturne,
+    Vellum,
+    Gilt,
+    Daylight,
+    /// The original look (bordered panes, terminal colours).
+    Classic,
     SolarizedDark,
     HighContrast,
 }
 
-impl Default for ThemePreset {
-    fn default() -> Self {
-        ThemePreset::Default
+impl ThemePreset {
+    pub const ALL: [ThemePreset; 7] = [
+        ThemePreset::Nocturne,
+        ThemePreset::Vellum,
+        ThemePreset::Gilt,
+        ThemePreset::Daylight,
+        ThemePreset::Classic,
+        ThemePreset::SolarizedDark,
+        ThemePreset::HighContrast,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ThemePreset::Nocturne => "Nocturne",
+            ThemePreset::Vellum => "Vellum",
+            ThemePreset::Gilt => "Gilt",
+            ThemePreset::Daylight => "Daylight",
+            ThemePreset::Classic => "Classic",
+            ThemePreset::SolarizedDark => "Solarized dark",
+            ThemePreset::HighContrast => "High contrast",
+        }
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReaderSettings {
-    /// Hard cap on chapter-pane width in cells. `0` = no cap.
+    /// Cap on the reading pane's width in cells: `0` = auto (a comfortable
+    /// measure), [`FULL_WIDTH`] = use the whole terminal.
     #[serde(default)]
     pub max_columns: u16,
     /// Translation id loaded on startup when no saved position exists. Empty
     /// string = "first installed alphabetically".
     #[serde(default)]
     pub default_translation: String,
+    #[serde(default)]
+    pub layout: ReadingLayout,
+    #[serde(default)]
+    pub columns: ColumnLayout,
+    /// Large chapter numeral at the start of a chapter in prose layout.
+    #[serde(default = "default_true")]
+    pub drop_cap: bool,
+    /// Mouse wheel scrolls, click focuses a verse. Off restores the
+    /// terminal's own text selection.
+    #[serde(default = "default_true")]
+    pub mouse: bool,
+}
+
+impl Default for ReaderSettings {
+    fn default() -> Self {
+        Self {
+            max_columns: 0,
+            default_translation: String::new(),
+            layout: ReadingLayout::default(),
+            columns: ColumnLayout::default(),
+            drop_cap: true,
+            mouse: true,
+        }
+    }
+}
+
+/// `max_columns` value meaning "no cap".
+pub const FULL_WIDTH: u16 = u16::MAX;
+
+/// How a chapter is laid out. `Auto` follows the theme.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ReadingLayout {
+    #[default]
+    Auto,
+    /// One verse per block, number in a gutter.
+    Verses,
+    /// Verses run together into paragraphs with superscript numbers.
+    Prose,
+}
+
+/// Single or two-column reading. `Auto` uses two columns when the theme
+/// prefers them and the terminal is wide enough.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ColumnLayout {
+    #[default]
+    Auto,
+    One,
+    Two,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
