@@ -48,6 +48,7 @@ pub(crate) enum AppEvent {
     DownloadProgress { id: String, bytes: u64, total: Option<u64> },
     DownloadDone { id: String, result: std::result::Result<TranslationInfo, String> },
     SearchDone { query: String, hits: Vec<BibleVerseReference> },
+    CatalogRefreshed(std::result::Result<Vec<AvailableTranslation>, String>),
 }
 
 pub(crate) const SPINNER_FRAMES: &[&str] = &["|", "/", "-", "\\"];
@@ -131,6 +132,8 @@ pub(crate) struct App {
     pub bible: Option<Arc<Bible>>,
     pub installed: Vec<TranslationInfo>,
     pub available: Vec<AvailableTranslation>,
+    /// A catalog refresh is running on a worker thread.
+    pub refreshing_catalog: bool,
     pub current: Option<BibleChapterReference>,
     /// 1-indexed verse cursor — the verse the user is currently focused on.
     /// Moves with `↑/↓`, drives the on-screen highlight, and (in single-
@@ -366,6 +369,7 @@ impl App {
             bible: None,
             installed,
             available,
+            refreshing_catalog: false,
             current: None,
             focus_verse: 1,
             scroll: 0,
@@ -685,6 +689,19 @@ impl App {
                     Err(e) => self.set_status(format!("install failed [{id}]: {e}")),
                 }
             }
+            AppEvent::CatalogRefreshed(result) => {
+                self.refreshing_catalog = false;
+                match result {
+                    Ok(translations) => {
+                        self.available = translations;
+                        // The filter may match fewer entries in the new list.
+                        let n = self.filtered_indices().len();
+                        self.manager_cursor = self.manager_cursor.min(n.saturating_sub(1));
+                        self.set_status(format!("{} translations cached", self.available.len()));
+                    }
+                    Err(e) => self.set_status(format!("couldn't fetch the catalog: {e}")),
+                }
+            }
         }
         Ok(())
     }
@@ -944,6 +961,14 @@ impl App {
         self.manager_filter = Input::default();
         self.manager_cursor = 0;
         self.mode = Mode::Manager;
+        // The reader's status (e.g. the first-run "press T" hint) would now
+        // show in the Manager's bottom row; it's stale here.
+        self.status.clear();
+        // First visit with no cached catalog: fetch the full list in the
+        // background; the built-in list shows until it arrives.
+        if !manifest::has_cache() {
+            self.refresh_manifest_async();
+        }
     }
 
     pub(crate) fn filtered_indices(&self) -> Vec<usize> {
@@ -1828,14 +1853,21 @@ impl App {
     }
 
     fn refresh_manifest_async(&mut self) {
-        self.set_status("refreshing manifest…");
-        match manifest::refresh() {
-            Ok(m) => {
-                self.available = m.translations;
-                self.set_status(format!("{} translations cached", self.available.len()));
-            }
-            Err(e) => self.set_status(format!("refresh failed: {e}")),
+        if self.refreshing_catalog {
+            return;
         }
+        self.refreshing_catalog = true;
+        let tx = self.event_tx.clone();
+        thread::spawn(move || {
+            // Same reasoning as the download worker: never let a panic
+            // reach the default handler, and always report back so
+            // `refreshing_catalog` gets cleared.
+            let result = match std::panic::catch_unwind(manifest::refresh) {
+                Ok(r) => r.map(|m| m.translations).map_err(|e| e.to_string()),
+                Err(_) => Err("panic during catalog refresh".to_string()),
+            };
+            let _ = tx.send(AppEvent::CatalogRefreshed(result));
+        });
     }
 
     fn jump_to(&mut self, q: &str) {

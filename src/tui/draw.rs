@@ -1076,9 +1076,10 @@ fn draw_manager(f: &mut Frame, app: &mut App, area: Rect) {
             Span::styled("Translations", Style::default().fg(Color::Magenta).bold()),
             Span::raw(" "),
             Span::styled(
-                format!("({} available, {} installed)",
+                format!("({} available, {} installed{})",
                     app.available.len(),
-                    app.installed.len()),
+                    app.installed.len(),
+                    if app.refreshing_catalog { ", fetching catalog…" } else { "" }),
                 Style::default().add_modifier(Modifier::DIM),
             ),
             Span::raw(" "),
@@ -1147,13 +1148,19 @@ fn draw_manager(f: &mut Frame, app: &mut App, area: Rect) {
     let list = List::new(items).highlight_style(Style::default().bg(Color::Indexed(236)));
     f.render_stateful_widget(list, rows[1], &mut app.manager_list_state);
 
-    let hint = hint_line(&[
-        ("Enter", "install/uninstall"),
-        ("Ctrl-R", "refresh"),
-        ("↑↓", "move"),
-        ("Esc", "back"),
-    ]);
-    f.render_widget(Paragraph::new(hint), rows[2]);
+    // A fresh status (catalog fetch result, install error) takes the hint
+    // row until it expires, like the reader's status bar.
+    let bottom = if app.status.is_empty() {
+        hint_line(&[
+            ("Enter", "install/uninstall"),
+            ("Ctrl-R", "refresh"),
+            ("↑↓", "move"),
+            ("Esc", "back"),
+        ])
+    } else {
+        Line::from(format!(" {}", sanitize_one_line(&app.status)))
+    };
+    f.render_widget(Paragraph::new(bottom), rows[2]);
 }
 
 fn draw_bookmarks(f: &mut Frame, app: &App, area: Rect) {

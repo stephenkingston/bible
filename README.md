@@ -244,10 +244,10 @@ bible read "John 3:16"
 bible read "Acts 2"
 bible search "Jesus"
 bible list                 # installed
-bible list --available     # downloadable (after `bible refresh`)
+bible list --available     # downloadable (fetches the catalog on first use)
 bible install kjv
 bible uninstall kjv
-bible refresh              # pull the full catalog from GitHub once
+bible refresh              # re-fetch the catalog from GitHub
 ```
 
 Pass `--translation <id>` to target a specific translation when several are
@@ -306,7 +306,7 @@ ignored and defaults are used; the file is never clobbered):
 | `bookmarks.toml`  | every bookmark you've made — chapter / verse + multi-line note |
 | `state.toml`      | last reading position (translation, book, chapter, focus verse) and your parallel-view pair, restored on next launch |
 | `plan.toml`       | reading-plan progress for the current year (which days you've completed) |
-| `manifest.json`   | cached catalog of available translations from `bible refresh`  |
+| `manifest.json`   | cached catalog of available translations, fetched on first use or by `bible refresh` |
 
 **Not persisted** — command history (`:` and `/` recall via `↑`/`↓`),
 back/forward navigation history (`Ctrl-O` / `Tab`), and search results

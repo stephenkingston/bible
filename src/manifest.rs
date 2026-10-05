@@ -1,8 +1,9 @@
 //! Catalog of available translations.
 //!
 //! A small static fallback ships embedded in the binary for offline browsing of
-//! the most-likely picks. `refresh()` hits the GitHub Trees API once to fetch the
-//! full Beblia catalog and caches it under the user's config dir.
+//! the most-likely picks. `refresh()` hits the GitHub Trees API to fetch the
+//! full Beblia catalog and caches it under the user's config dir; that happens
+//! automatically the first time the catalog is needed and none is cached yet.
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -43,6 +44,11 @@ pub fn cached() -> Option<CachedManifest> {
     serde_json::from_str(&s).ok()
 }
 
+/// Whether a full catalog from [`refresh`] is cached.
+pub fn has_cache() -> bool {
+    cached().is_some_and(|m| !m.translations.is_empty())
+}
+
 pub fn list_available() -> Vec<AvailableTranslation> {
     if let Some(m) = cached() {
         if !m.translations.is_empty() {
@@ -52,6 +58,26 @@ pub fn list_available() -> Vec<AvailableTranslation> {
     serde_json::from_str::<CachedManifest>(STATIC_MANIFEST)
         .map(|m| m.translations)
         .unwrap_or_default()
+}
+
+/// Like [`list_available`], but fetches the full catalog first if none is
+/// cached yet. If that fails (offline, rate-limited) it warns on stderr and
+/// falls back to the built-in list.
+pub fn list_available_or_fetch() -> Vec<AvailableTranslation> {
+    if !has_cache() {
+        if !crate::is_quiet() {
+            eprintln!("fetching translation catalog from GitHub…");
+        }
+        match refresh() {
+            Ok(m) => return m.translations,
+            Err(e) => {
+                if !crate::is_quiet() {
+                    eprintln!("warning: couldn't fetch the catalog ({e}); using the built-in list");
+                }
+            }
+        }
+    }
+    list_available()
 }
 
 #[derive(Debug, Deserialize)]
@@ -117,7 +143,6 @@ pub fn refresh() -> Result<CachedManifest> {
 const ALIASES: &[(&str, &str)] = &[
     ("kjv", "EnglishKJBible"),
     ("asv", "EnglishASVBible"),
-    ("web", "EnglishWEBBible"),
     ("ylt", "EnglishYLTBible"),
 ];
 
@@ -143,7 +168,7 @@ pub fn resolve_id(input: &str) -> Result<String> {
     {
         return Ok(t.id.clone());
     }
-    let available = list_available();
+    let available = list_available_or_fetch();
     if let Some(t) = available
         .iter()
         .find(|t| t.id.eq_ignore_ascii_case(input))

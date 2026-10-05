@@ -151,7 +151,7 @@ fn cmd_search(translation: Option<&str>, query: &str) -> Result<()> {
 
 fn cmd_list(available: bool) -> Result<()> {
     if available {
-        let m = manifest::list_available();
+        let m = manifest::list_available_or_fetch();
         if m.is_empty() {
             println!("no available translations cached — try `bible refresh`");
             return Ok(());
