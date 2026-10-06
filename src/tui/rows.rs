@@ -237,7 +237,9 @@ fn fill_lines(tokens: &[Token], gap: usize, avail: impl Fn(usize) -> usize) -> V
 fn push_tokens(row: &mut Row, line: &[&Token], width: usize, gap: usize, justify: bool) {
     let words_w: usize = line.iter().map(|t| t.width).sum();
     let gaps = line.len().saturating_sub(1);
-    let total_gap = if justify && gaps > 0 { width.saturating_sub(words_w).max(gaps * gap) } else { gaps * gap };
+    let stretched = width.saturating_sub(words_w).max(gaps * gap);
+    let justify = justify && gaps > 0 && stretched <= gaps * (gap + MAX_JUSTIFY_STRETCH);
+    let total_gap = if justify { stretched } else { gaps * gap };
     let base = total_gap.checked_div(gaps).unwrap_or(0);
     let extra = total_gap.checked_rem(gaps).unwrap_or(0);
     for (i, t) in line.iter().enumerate() {
@@ -430,10 +432,12 @@ pub(super) fn grapheme_cells<'a>(text: &'a str, settings: &Settings) -> Vec<(&'a
 }
 
 /// How far a Tamil glyph may run into the next syllable's cell. A terminal
-/// draws every glyph from a cell boundary, so a syllable gets the fewest
-/// whole cells that hold its glyph to within this much; side bearings keep
-/// that small an overlap from touching the next letter.
-const GLYPH_OVERLAP: f32 = 0.4;
+/// draws every glyph from a cell boundary, so the gap after a syllable is
+/// fixed by its glyph width modulo one cell: rounding can only choose
+/// whether the jitter falls as overlaps or as gaps. Overlaps collide
+/// letters, so a syllable gets enough whole cells that its glyph never runs
+/// on by more than side bearings absorb.
+const GLYPH_OVERLAP: f32 = 0.1;
 
 fn cells_with<'a>(text: &'a str, settings: &Settings, marks: Option<MarkWidths>) -> Vec<(&'a str, usize, usize)> {
     UnicodeSegmentation::graphemes(text, true)
@@ -603,8 +607,14 @@ pub(super) fn wrap_to_width(text: &str, max_width: usize, settings: &Settings) -
     lines
 }
 
+/// Most cells justification may add to one word gap. A line that would
+/// need more (a few long words in a narrow column) stays ragged rather than
+/// opening holes.
+const MAX_JUSTIFY_STRETCH: usize = 2;
+
 /// Re-distribute spaces between words so the line spans `target` columns.
-/// Returns the line unchanged when justification doesn't apply: lines with
+/// Returns the line unchanged when justification doesn't apply: lines that
+/// would need more than `MAX_JUSTIFY_STRETCH` extra cells per gap, lines with
 /// fewer than two whitespace-separated tokens (single word, blank, or a
 /// grapheme-broken super-long word), or lines whose words already meet/
 /// exceed the target.
@@ -619,6 +629,10 @@ fn justify_line(line: &str, target: usize, settings: &Settings) -> String {
     }
     let n_gaps = words.len() - 1;
     let total_gap = target - total_word_w;
+    let gap = 1 + settings.typography.word_padding as usize;
+    if total_gap > n_gaps * (gap + MAX_JUSTIFY_STRETCH) {
+        return line.to_string();
+    }
     let base = total_gap / n_gaps;
     let extra = total_gap % n_gaps;
     let mut out = String::new();
@@ -652,6 +666,15 @@ mod tests {
 
     fn row_width(row: &Row, s: &Settings) -> usize {
         row.segs.iter().map(|g| str_width(&g.text, s)).sum()
+    }
+
+    #[test]
+    fn justification_never_opens_holes() {
+        let s = Settings::default();
+        // Two words can't fill 40 cells without huge gaps: left ragged.
+        assert_eq!(justify_line("in him", 40, &s), "in him");
+        // A modest stretch is still justified.
+        assert_eq!(justify_line("in him was life", 18, &s), "in  him  was  life");
     }
 
     #[test]

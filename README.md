@@ -195,6 +195,15 @@ kitty, WezTerm, and most terminals that set `COLORTERM=truecolor`) and fall
 back to the nearest 256-colour shades elsewhere, such as macOS Terminal.
 Set `BIBLE_TRUECOLOR=1` or `0` to override the detection.
 
+### Tamil
+
+Terminals start every glyph on a cell boundary, but ordinary Tamil glyphs
+are fractions of a cell wide, so no layout can space Tamil evenly in a
+normal terminal font: each syllable either crowds its neighbour or leaves
+a gap. `bible` measures at startup how your terminal sizes syllables with
+vowel signs and gives each syllable room for its glyph, so text never
+collides, but spacing within words is uneven.
+
 ### Bookmarks (`B`)
 
 | Key            | Action                                              |
