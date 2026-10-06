@@ -79,10 +79,10 @@ pub fn list_installed() -> Result<Vec<TranslationInfo>> {
     for entry in fs::read_dir(&dir)? {
         let entry = entry?;
         let meta_path = entry.path().join("meta.json");
-        if let Ok(s) = fs::read_to_string(&meta_path) {
-            if let Ok(info) = serde_json::from_str::<TranslationInfo>(&s) {
-                out.push(info);
-            }
+        if let Ok(s) = fs::read_to_string(&meta_path)
+            && let Ok(info) = serde_json::from_str::<TranslationInfo>(&s)
+        {
+            out.push(info);
         }
     }
     out.sort_by(|a, b| a.id.cmp(&b.id));

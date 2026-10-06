@@ -89,18 +89,13 @@ pub struct ScriptPadding {
     pub cjk: u8,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum VerseNumberStyle {
+    #[default]
     InlineBold,
     Superscript,
     Hidden,
-}
-
-impl Default for VerseNumberStyle {
-    fn default() -> Self {
-        VerseNumberStyle::InlineBold
-    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -218,18 +213,13 @@ pub struct ParallelSettings {
     pub divider: DividerStyle,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DividerStyle {
+    #[default]
     Single,
     Double,
     None,
-}
-
-impl Default for DividerStyle {
-    fn default() -> Self {
-        DividerStyle::Single
-    }
 }
 
 fn settings_path() -> Result<PathBuf> {

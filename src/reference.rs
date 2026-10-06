@@ -48,10 +48,10 @@ fn candidate_forms(s: &str) -> Vec<String> {
     // Capitalise only the first character (covers `psalm 5` → `Psalm 5`
     // without mangling things like `1 samuel 3`).
     let mut chars = s.chars();
-    if let Some(first) = chars.next() {
-        if first.is_lowercase() {
-            push(first.to_uppercase().chain(chars).collect());
-        }
+    if let Some(first) = chars.next()
+        && first.is_lowercase()
+    {
+        push(first.to_uppercase().chain(chars).collect());
     }
 
     // Title-case the leading book-name run (everything before the first

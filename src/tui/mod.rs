@@ -532,31 +532,26 @@ impl App {
         // After the default Genesis 1 / focus_verse=1 from load_translation,
         // restore the saved chapter and verse cursor if they belong to the
         // translation we just loaded.
-        if let Some(p) = saved_position {
-            if p.translation == id {
-                if let Ok(book) = book_from_number(p.book_number) {
-                    if let Ok(chap_u8) = u8::try_from(p.chapter) {
-                        if let Ok(cr) = BibleChapterReference::new(book, chap_u8) {
-                            self.current = Some(cr);
-                            self.focus_verse = p.focus_verse.max(1);
-                            // load_translation set needs_clear; keep that.
-                        }
-                    }
-                }
-            }
+        if let Some(p) = saved_position
+            && p.translation == id
+            && let Ok(book) = book_from_number(p.book_number)
+            && let Ok(chap_u8) = u8::try_from(p.chapter)
+            && let Ok(cr) = BibleChapterReference::new(book, chap_u8)
+        {
+            self.current = Some(cr);
+            self.focus_verse = p.focus_verse.max(1);
+            // load_translation set needs_clear; keep that.
         }
 
         // Restore parallel-view config if the secondary is still installed.
-        if let Some(sv) = saved.as_ref() {
-            if let Some(p) = &sv.parallel {
-                if crate::storage::is_installed(&p.secondary_translation) {
-                    if let Ok(b) = Bible::load(&p.secondary_translation) {
-                        self.secondary_bible = Some(Arc::new(b));
-                        self.secondary_id = Some(p.secondary_translation.clone());
-                        self.parallel = true;
-                    }
-                }
-            }
+        if let Some(sv) = saved.as_ref()
+            && let Some(p) = &sv.parallel
+            && crate::storage::is_installed(&p.secondary_translation)
+            && let Ok(b) = Bible::load(&p.secondary_translation)
+        {
+            self.secondary_bible = Some(Arc::new(b));
+            self.secondary_id = Some(p.secondary_translation.clone());
+            self.parallel = true;
         }
 
         Ok(())
@@ -618,10 +613,10 @@ impl App {
     /// (browser semantics).
     fn push_history(&mut self) {
         let Some(snap) = self.snapshot() else { return };
-        if let Some(last) = self.back_stack.last() {
-            if same_chapter(last, &snap) {
-                return;
-            }
+        if let Some(last) = self.back_stack.last()
+            && same_chapter(last, &snap)
+        {
+            return;
         }
         self.back_stack.push(snap);
         if self.back_stack.len() > 100 {
@@ -751,11 +746,11 @@ impl App {
                 }
             }
             AppEvent::DownloadProgress { id, bytes, total } => {
-                if let Some(d) = self.download.as_mut() {
-                    if d.id == id {
-                        d.bytes = bytes;
-                        d.total = total;
-                    }
+                if let Some(d) = self.download.as_mut()
+                    && d.id == id
+                {
+                    d.bytes = bytes;
+                    d.total = total;
                 }
             }
             AppEvent::DownloadDone { id, result } => {
@@ -1163,11 +1158,11 @@ impl App {
         self.push_history();
         match self.load_translation(id) {
             Ok(()) => {
-                if let Some((cr, verse)) = place {
-                    if self.bible.as_ref().is_some_and(|b| b.get_chapter(&cr).is_some()) {
-                        self.current = Some(cr);
-                        self.focus_verse = verse;
-                    }
+                if let Some((cr, verse)) = place
+                    && self.bible.as_ref().is_some_and(|b| b.get_chapter(&cr).is_some())
+                {
+                    self.current = Some(cr);
+                    self.focus_verse = verse;
                 }
                 let name = self.bible.as_ref().map(|b| b.translation.display_name.clone()).unwrap_or_default();
                 self.set_status(format!("reading {name}"));
@@ -1589,15 +1584,15 @@ impl App {
             self.yank_verses(1, u16::MAX);
             return;
         }
-        if let Some((s, e)) = args.split_once('-') {
-            if let (Ok(start), Ok(end)) = (s.trim().parse::<u16>(), e.trim().parse::<u16>()) {
-                if start == 0 || end < start {
-                    self.set_status(format!("invalid range: :y {args}"));
-                    return;
-                }
-                self.yank_verses(start, end);
+        if let Some((s, e)) = args.split_once('-')
+            && let (Ok(start), Ok(end)) = (s.trim().parse::<u16>(), e.trim().parse::<u16>())
+        {
+            if start == 0 || end < start {
+                self.set_status(format!("invalid range: :y {args}"));
                 return;
             }
+            self.yank_verses(start, end);
+            return;
         }
         if let Ok(n) = args.parse::<u16>() {
             self.yank_verses(n, n);
@@ -1817,7 +1812,7 @@ impl App {
         // Pre-validate everything so we don't push to history on a no-op.
         let Some(cr) = book_from_number(bm.book_number)
             .ok()
-            .and_then(|book| u8::try_from(bm.chapter).ok().map(|c| (book, c)))
+            .zip(u8::try_from(bm.chapter).ok())
             .and_then(|(book, c)| BibleChapterReference::new(book, c).ok())
         else {
             self.set_status("invalid bookmark");

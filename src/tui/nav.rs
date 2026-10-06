@@ -10,7 +10,7 @@ pub fn shift_chapter(r: &BibleChapterReference, dir: i32) -> Option<BibleChapter
 
     if dir > 0 {
         if cur < total {
-            BibleChapterReference::new(book, ((cur + 1) as u8).min(255)).ok()
+            BibleChapterReference::new(book, u8::try_from(cur + 1).ok()?).ok()
         } else {
             let next = book.number().checked_add(1)?;
             let nb = get_bible_book_by_number(next)?;

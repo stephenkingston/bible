@@ -99,20 +99,20 @@ pub fn parse_xml(xml: &str, id: &str) -> Result<Bible> {
             }
             Ok(Event::End(e)) => match e.name().as_ref() {
                 b"verse" => {
-                    if let Some(num) = current_verse_num.take() {
-                        if let Some(ch) = current_chapter.as_mut() {
-                            ch.verses.push(Verse {
-                                number: num,
-                                text: std::mem::take(&mut current_verse_text),
-                            });
-                        }
+                    if let Some(num) = current_verse_num.take()
+                        && let Some(ch) = current_chapter.as_mut()
+                    {
+                        ch.verses.push(Verse {
+                            number: num,
+                            text: std::mem::take(&mut current_verse_text),
+                        });
                     }
                 }
                 b"chapter" => {
-                    if let Some(ch) = current_chapter.take() {
-                        if let Some(b) = current_book.as_mut() {
-                            b.chapters.push(ch);
-                        }
+                    if let Some(ch) = current_chapter.take()
+                        && let Some(b) = current_book.as_mut()
+                    {
+                        b.chapters.push(ch);
                     }
                 }
                 b"book" => {

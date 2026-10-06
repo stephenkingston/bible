@@ -50,10 +50,10 @@ pub fn has_cache() -> bool {
 }
 
 pub fn list_available() -> Vec<AvailableTranslation> {
-    if let Some(m) = cached() {
-        if !m.translations.is_empty() {
-            return m.translations;
-        }
+    if let Some(m) = cached()
+        && !m.translations.is_empty()
+    {
+        return m.translations;
     }
     serde_json::from_str::<CachedManifest>(STATIC_MANIFEST)
         .map(|m| m.translations)

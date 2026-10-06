@@ -34,7 +34,7 @@ impl Bible {
                     let Ok(vnum) = u8::try_from(verse.number) else {
                         continue;
                     };
-                    if let Ok(r) = BibleVerseReference::new(book_enum.clone(), chap, vnum) {
+                    if let Ok(r) = BibleVerseReference::new(book_enum, chap, vnum) {
                         hits.push(SearchHit {
                             reference: r,
                             text: verse.text.clone(),

@@ -55,7 +55,7 @@ pub fn run() -> Result<()> {
         Some(Command::Refresh) => cmd_refresh(),
         None => {
             if std::io::stdout().is_terminal() {
-                crate::tui::run(cli.translation).map_err(Into::into)
+                crate::tui::run(cli.translation)
             } else {
                 use clap::CommandFactory;
                 Cli::command().print_help()?;
@@ -181,13 +181,13 @@ fn cmd_install(input: &str) -> Result<()> {
     eprintln!("installing {id} from Beblia…");
     let mut last_pct: u8 = 255;
     let mut progress = |bytes: u64, total: Option<u64>| {
-        if let Some(total) = total {
-            if total > 0 {
-                let pct = ((bytes * 100) / total).min(100) as u8;
-                if pct != last_pct && pct % 5 == 0 {
-                    eprint!("\r  {pct:>3}% ({}/{} KiB)", bytes / 1024, total / 1024);
-                    last_pct = pct;
-                }
+        if let Some(total) = total
+            && total > 0
+        {
+            let pct = ((bytes * 100) / total).min(100) as u8;
+            if pct != last_pct && pct.is_multiple_of(5) {
+                eprint!("\r  {pct:>3}% ({}/{} KiB)", bytes / 1024, total / 1024);
+                last_pct = pct;
             }
         }
     };
