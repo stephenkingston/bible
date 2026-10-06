@@ -1,6 +1,9 @@
 //! `bible` — a TUI Bible reader with on-demand translation downloads.
 //!
-//! - Canonical reference handling is delegated to the [`bibleref`] crate.
+//! ![The bible reader in its themes, with the keys card and command palette](https://raw.githubusercontent.com/stephenkingston/bible/main/screenshots/screencast.gif)
+//!
+//! - Canonical reference handling is delegated to the
+//!   [`bibleref`](https://docs.rs/bibleref) crate.
 //! - Translation files are fetched on demand from the
 //!   [Beblia Holy-Bible-XML-Format repo](https://github.com/Beblia/Holy-Bible-XML-Format)
 //!   and stored under the user's data directory.
@@ -18,6 +21,24 @@
 //! # Ok(())
 //! # }
 //! ```
+//!
+//! # Screenshots
+//!
+//! The `bible` binary (`cargo install bible`) opens in Vellum, shown above:
+//! an illuminated manuscript, set as running prose. The other themes include
+//! Nocturne, Gilt and Daylight:
+//!
+//! ![John 1 in the Nocturne theme](https://raw.githubusercontent.com/stephenkingston/bible/main/screenshots/nocturne.png)
+//!
+//! ![John 1 in the Gilt theme](https://raw.githubusercontent.com/stephenkingston/bible/main/screenshots/gilt.png)
+//!
+//! ![John 1 in the Daylight theme, in two columns](https://raw.githubusercontent.com/stephenkingston/bible/main/screenshots/daylight.png)
+//!
+//! The command palette (`Ctrl-K`) and the keys card (`?`):
+//!
+//! ![The command palette](https://raw.githubusercontent.com/stephenkingston/bible/main/screenshots/palette.png)
+//!
+//! ![The keys card](https://raw.githubusercontent.com/stephenkingston/bible/main/screenshots/help.png)
 
 pub mod bible;
 pub mod bookmarks;

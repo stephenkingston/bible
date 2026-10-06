@@ -116,8 +116,8 @@ pub enum ThemePreset {
     /// only ever the default, not a choice; it follows the current default.
     #[default]
     #[serde(alias = "default")]
-    Nocturne,
     Vellum,
+    Nocturne,
     Gilt,
     Daylight,
     /// The original look (bordered panes, terminal colours).
@@ -128,8 +128,8 @@ pub enum ThemePreset {
 
 impl ThemePreset {
     pub const ALL: [ThemePreset; 7] = [
-        ThemePreset::Nocturne,
         ThemePreset::Vellum,
+        ThemePreset::Nocturne,
         ThemePreset::Gilt,
         ThemePreset::Daylight,
         ThemePreset::Classic,
@@ -139,8 +139,8 @@ impl ThemePreset {
 
     pub fn label(self) -> &'static str {
         match self {
-            ThemePreset::Nocturne => "Nocturne",
             ThemePreset::Vellum => "Vellum",
+            ThemePreset::Nocturne => "Nocturne",
             ThemePreset::Gilt => "Gilt",
             ThemePreset::Daylight => "Daylight",
             ThemePreset::Classic => "Classic",

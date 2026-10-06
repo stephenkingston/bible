@@ -524,13 +524,14 @@ mod tests {
     }
 
     #[test]
-    fn legacy_default_preset_maps_to_nocturne() {
+    fn legacy_default_preset_follows_the_default() {
         #[derive(serde::Deserialize)]
         struct T {
             preset: ThemePreset,
         }
         let t: T = toml::from_str("preset = \"default\"").unwrap();
-        assert_eq!(t.preset, ThemePreset::Nocturne);
+        assert_eq!(t.preset, ThemePreset::default());
+        assert_eq!(t.preset, ThemePreset::Vellum);
         let t: T = toml::from_str("preset = \"solarized-dark\"").unwrap();
         assert_eq!(t.preset, ThemePreset::SolarizedDark);
     }

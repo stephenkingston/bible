@@ -30,15 +30,16 @@ bible install kjv
 
 ## Screenshots
 
-**Nocturne**, the default theme: borderless, with the focused verse marked in
-the margin and a status line that always shows how to get help and quit.
+**Vellum**, the default theme: an illuminated manuscript, set as running
+prose with a drop-cap chapter numeral and red verse numbers. The status line
+always shows how to get help and quit.
 
-![Nocturne](https://raw.githubusercontent.com/stephenkingston/bible/main/screenshots/reader.png)
+![Vellum](https://raw.githubusercontent.com/stephenkingston/bible/main/screenshots/reader.png)
 
-**Vellum**: an illuminated manuscript, set as running prose with a drop-cap
-chapter numeral and red verse numbers.
+**Nocturne**: dark and borderless, with the focused verse marked in the
+margin.
 
-![Vellum](https://raw.githubusercontent.com/stephenkingston/bible/main/screenshots/vellum.png)
+![Nocturne](https://raw.githubusercontent.com/stephenkingston/bible/main/screenshots/nocturne.png)
 
 **Gilt**: black and gold, with your installed translations as tabs.
 
@@ -68,7 +69,7 @@ Bible-in-a-Year plan:
 
 ## Highlights
 
-- **Seven themes**: Nocturne, Vellum, Gilt and Daylight, plus Classic,
+- **Seven themes**: Vellum, Nocturne, Gilt and Daylight, plus Classic,
   Solarized dark and High contrast. Switch from Settings (`,`) or the palette.
 - **Prose or verse-per-line layout**, with drop-cap chapter numerals and
   two columns on wide terminals.
@@ -182,8 +183,8 @@ every command, theme, layout and installed translation whose name matches.
 
 | Theme            | Look                                                              |
 | ---------------- | ----------------------------------------------------------------- |
-| `nocturne`       | the default: dark, borderless, periwinkle accents                 |
-| `vellum`         | illuminated manuscript: umber, rubricated verse numbers, prose    |
+| `vellum`         | the default: illuminated manuscript, red verse numbers, prose     |
+| `nocturne`       | dark, borderless, periwinkle accents                              |
 | `gilt`           | black and gold, rounded frame, translation tabs                   |
 | `daylight`       | paper and ink, prose in two columns on wide terminals             |
 | `classic`        | the original bordered look in your terminal's colours             |
