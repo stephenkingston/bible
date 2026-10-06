@@ -223,4 +223,3 @@ fn cmd_refresh() -> Result<()> {
     );
     Ok(())
 }
-

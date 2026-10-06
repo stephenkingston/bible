@@ -415,7 +415,10 @@ impl Theme {
         if self.keycaps {
             Span::styled(
                 format!(" {key} "),
-                Style::default().fg(self.badge_fg).bg(self.badge_bg).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(self.badge_fg)
+                    .bg(self.badge_bg)
+                    .add_modifier(Modifier::BOLD),
             )
         } else {
             Span::styled(
@@ -459,7 +462,10 @@ pub(super) fn truecolor() -> bool {
         if let Ok(v) = std::env::var("BIBLE_TRUECOLOR") {
             return v != "0";
         }
-        if matches!(std::env::var("COLORTERM").as_deref(), Ok("truecolor" | "24bit")) {
+        if matches!(
+            std::env::var("COLORTERM").as_deref(),
+            Ok("truecolor" | "24bit")
+        ) {
             return true;
         }
         matches!(
@@ -486,7 +492,11 @@ pub(super) fn rgb_to_xterm(r: u8, g: u8, b: u8) -> u8 {
             .unwrap_or(0)
     };
     let dist = |(x, y, z): (u8, u8, u8)| -> i32 {
-        let (dr, dg, db) = (x as i32 - r as i32, y as i32 - g as i32, z as i32 - b as i32);
+        let (dr, dg, db) = (
+            x as i32 - r as i32,
+            y as i32 - g as i32,
+            z as i32 - b as i32,
+        );
         dr * dr + dg * dg + db * db
     };
     let (ri, gi, bi) = (nearest(r), nearest(g), nearest(b));
@@ -517,7 +527,9 @@ mod tests {
     fn folded_theme_has_no_rgb_left() {
         for preset in ThemePreset::ALL {
             let t = palette(preset).folded();
-            for c in [t.bg, t.fg, t.dim, t.faint, t.accent, t.focus_bg, t.panel_bg, t.sel_bg] {
+            for c in [
+                t.bg, t.fg, t.dim, t.faint, t.accent, t.focus_bg, t.panel_bg, t.sel_bg,
+            ] {
                 assert!(!matches!(c, Color::Rgb(..)), "{preset:?} kept {c:?}");
             }
         }

@@ -140,7 +140,10 @@ fn pane_title(app: &App, theme: &Theme, translation: Option<&TranslationInfo>) -
     let ch: u32 = cr.chapter().into();
     let mut spans = vec![Span::raw(" ")];
     if let Some(t) = translation {
-        spans.push(Span::styled(chrome::short_name(t), Style::default().fg(theme.accent2).bold()));
+        spans.push(Span::styled(
+            chrome::short_name(t),
+            Style::default().fg(theme.accent2).bold(),
+        ));
         spans.push(Span::raw(" │ "));
     }
     if theme.spaced {
@@ -151,18 +154,35 @@ fn pane_title(app: &App, theme: &Theme, translation: Option<&TranslationInfo>) -
         spans.push(Span::raw(" "));
         return Line::from(spans).centered();
     }
-    spans.push(Span::styled(book.to_string(), Style::default().fg(theme.title).bold()));
+    spans.push(Span::styled(
+        book.to_string(),
+        Style::default().fg(theme.title).bold(),
+    ));
     spans.push(Span::raw(" "));
-    spans.push(Span::styled(ch.to_string(), Style::default().fg(theme.title2).bold()));
+    spans.push(Span::styled(
+        ch.to_string(),
+        Style::default().fg(theme.title2).bold(),
+    ));
     spans.push(Span::raw(" "));
     Line::from(spans)
 }
 
 /// Draw the pane's frame, or leave margins for borderless themes. Returns
 /// the text area, the column for the scroll indicator, and whether framed.
-fn frame_pane(f: &mut Frame, pane: Rect, theme: &Theme, title: Line<'static>, border: Color) -> (Rect, u16, bool) {
+fn frame_pane(
+    f: &mut Frame,
+    pane: Rect,
+    theme: &Theme,
+    title: Line<'static>,
+    border: Color,
+) -> (Rect, u16, bool) {
     if theme.frame == Edge::None {
-        let inner = Rect::new(pane.x + 2, pane.y, pane.width.saturating_sub(5), pane.height);
+        let inner = Rect::new(
+            pane.x + 2,
+            pane.y,
+            pane.width.saturating_sub(5),
+            pane.height,
+        );
         return (inner, pane.right().saturating_sub(2), false);
     }
     let block = theme
@@ -196,14 +216,26 @@ fn draw_chapter(f: &mut Frame, app: &mut App, pane: Rect, theme: &Theme, two: bo
         return;
     };
 
-    let ncols: u16 = if two && inner.width >= 2 * 20 + COLUMN_GAP { 2 } else { 1 };
-    let col_w = if ncols == 2 { (inner.width - COLUMN_GAP) / 2 } else { inner.width };
+    let ncols: u16 = if two && inner.width >= 2 * 20 + COLUMN_GAP {
+        2
+    } else {
+        1
+    };
+    let col_w = if ncols == 2 {
+        (inner.width - COLUMN_GAP) / 2
+    } else {
+        inner.width
+    };
     let settings = &app.settings;
     let rows = if uses_prose(settings, theme) {
         rows::prose_rows(chapter, col_w as usize, settings, settings.reader.drop_cap)
     } else {
         let gutter = rows::verse_prefix_width(settings.typography.verse_number_style);
-        rows::verse_rows(chapter, (col_w as usize).saturating_sub(gutter).max(1), settings)
+        rows::verse_rows(
+            chapter,
+            (col_w as usize).saturating_sub(gutter).max(1),
+            settings,
+        )
     };
 
     let focus = app.focus_verse.max(1);
@@ -213,20 +245,45 @@ fn draw_chapter(f: &mut Frame, app: &mut App, pane: Rect, theme: &Theme, two: bo
     let start = rows::compute_scroll(&rows, focus, visible, app.scroll as usize, app.pin_focus);
     let mut zones = Vec::new();
     for c in 0..ncols {
-        let col = Rect::new(inner.x + c * (col_w + COLUMN_GAP), inner.y, col_w, inner.height);
+        let col = Rect::new(
+            inner.x + c * (col_w + COLUMN_GAP),
+            inner.y,
+            col_w,
+            inner.height,
+        );
         let from = (start + c as usize * height).min(rows.len());
         let to = (from + height).min(rows.len());
-        render_rows(f.buffer_mut(), &rows[from..to], col, focus, hit, theme, settings, &mut zones);
+        render_rows(
+            f.buffer_mut(),
+            &rows[from..to],
+            col,
+            focus,
+            hit,
+            theme,
+            settings,
+            &mut zones,
+        );
     }
     if ncols == 2 {
         let x = inner.x + col_w + COLUMN_GAP / 2;
         for y in inner.top()..inner.bottom() {
             if let Some(cell) = f.buffer_mut().cell_mut((x, y)) {
-                cell.set_symbol("│").set_style(Style::default().fg(theme.faint));
+                cell.set_symbol("│")
+                    .set_style(Style::default().fg(theme.faint));
             }
         }
     }
-    scrollbar(f.buffer_mut(), bar_x, inner.y, inner.height, rows.len(), start, visible, theme, framed);
+    scrollbar(
+        f.buffer_mut(),
+        bar_x,
+        inner.y,
+        inner.height,
+        rows.len(),
+        start,
+        visible,
+        theme,
+        framed,
+    );
 
     app.scroll = start as u16;
     app.pin_focus = false;
@@ -244,7 +301,8 @@ fn draw_parallel(f: &mut Frame, app: &mut App, pane: Rect, theme: &Theme) {
     let Some(cr) = app.current.clone() else {
         return;
     };
-    let halves = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).split(pane);
+    let halves =
+        Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).split(pane);
     let focus = app.focus_verse.max(1);
     let hit = highlighted_verse_for(app, &cr);
     let divider = app.settings.parallel.divider;
@@ -257,15 +315,39 @@ fn draw_parallel(f: &mut Frame, app: &mut App, pane: Rect, theme: &Theme) {
             // Borderless: a label row, then text; the divider sits on the
             // right half's first column.
             let label = vec![
-                Span::styled(chrome::short_name(&bible.translation), Style::default().fg(label_color).bold()),
+                Span::styled(
+                    chrome::short_name(&bible.translation),
+                    Style::default().fg(label_color).bold(),
+                ),
                 Span::raw("  "),
-                Span::styled(truncate(&bible.translation.display_name, half.width.saturating_sub(14) as usize), theme.dim()),
+                Span::styled(
+                    truncate(
+                        &bible.translation.display_name,
+                        half.width.saturating_sub(14) as usize,
+                    ),
+                    theme.dim(),
+                ),
             ];
-            f.render_widget(Line::from(label), Rect::new(half.x + 2, half.y, half.width.saturating_sub(4), 1));
-            Rect::new(half.x + 2, half.y + 2, half.width.saturating_sub(5), half.height.saturating_sub(2))
+            f.render_widget(
+                Line::from(label),
+                Rect::new(half.x + 2, half.y, half.width.saturating_sub(4), 1),
+            );
+            Rect::new(
+                half.x + 2,
+                half.y + 2,
+                half.width.saturating_sub(5),
+                half.height.saturating_sub(2),
+            )
         } else {
             let border = if i == 0 { theme.border } else { theme.accent2 };
-            frame_pane(f, half, theme, pane_title(app, theme, Some(&bible.translation)), border).0
+            frame_pane(
+                f,
+                half,
+                theme,
+                pane_title(app, theme, Some(&bible.translation)),
+                border,
+            )
+            .0
         };
         if inner.width == 0 || inner.height == 0 {
             continue;
@@ -278,9 +360,22 @@ fn draw_parallel(f: &mut Frame, app: &mut App, pane: Rect, theme: &Theme) {
             continue;
         };
         let gutter = rows::verse_prefix_width(app.settings.typography.verse_number_style);
-        let rows = rows::verse_rows(chapter, (inner.width as usize).saturating_sub(gutter).max(1), &app.settings);
+        let rows = rows::verse_rows(
+            chapter,
+            (inner.width as usize).saturating_sub(gutter).max(1),
+            &app.settings,
+        );
         let start = rows::first_row_for_verse(&rows, focus);
-        render_rows(f.buffer_mut(), &rows[start..], inner, focus, hit, theme, &app.settings, &mut zones);
+        render_rows(
+            f.buffer_mut(),
+            &rows[start..],
+            inner,
+            focus,
+            hit,
+            theme,
+            &app.settings,
+            &mut zones,
+        );
     }
 
     if theme.frame == Edge::None {
@@ -292,7 +387,8 @@ fn draw_parallel(f: &mut Frame, app: &mut App, pane: Rect, theme: &Theme) {
         let x = halves[1].x;
         for y in pane.top()..pane.bottom() {
             if let Some(cell) = f.buffer_mut().cell_mut((x, y)) {
-                cell.set_symbol(glyph).set_style(Style::default().fg(theme.faint));
+                cell.set_symbol(glyph)
+                    .set_style(Style::default().fg(theme.faint));
             }
         }
     } else {
@@ -304,7 +400,13 @@ fn draw_parallel(f: &mut Frame, app: &mut App, pane: Rect, theme: &Theme) {
 /// Overlay the seam between framed parallel panes. `Single` leaves both
 /// touching borders (a thicker `││` line); `Double` overlays `║` and `None`
 /// blanks the seam.
-fn apply_divider_style(buf: &mut Buffer, left: Rect, right: Rect, style: DividerStyle, theme: &Theme) {
+fn apply_divider_style(
+    buf: &mut Buffer,
+    left: Rect,
+    right: Rect,
+    style: DividerStyle,
+    theme: &Theme,
+) {
     let glyph = match style {
         DividerStyle::Single => return,
         DividerStyle::Double => "║",
@@ -315,7 +417,8 @@ fn apply_divider_style(buf: &mut Buffer, left: Rect, right: Rect, style: Divider
     for x in [left.x + left.width.saturating_sub(1), right.x] {
         for y in top..bottom {
             if let Some(cell) = buf.cell_mut((x, y)) {
-                cell.set_symbol(glyph).set_style(Style::default().fg(theme.faint));
+                cell.set_symbol(glyph)
+                    .set_style(Style::default().fg(theme.faint));
             }
         }
     }
@@ -347,29 +450,49 @@ fn render_rows(
         for x in col.left()..col.right() {
             if let Some(cell) = buf.cell_mut((x, y)) {
                 cell.reset();
-                cell.set_symbol(" ").set_style(Style::default().fg(theme.fg).bg(row_bg));
+                cell.set_symbol(" ")
+                    .set_style(Style::default().fg(theme.fg).bg(row_bg));
             }
         }
         let mut x = col.x;
         for seg in &row.segs {
             let x0 = x;
-            x = rows::write_graphemes(buf, x, y, col.right(), &seg.text, seg_style(seg, row_bg, focus, hit, theme), settings);
+            x = rows::write_graphemes(
+                buf,
+                x,
+                y,
+                col.right(),
+                &seg.text,
+                seg_style(seg, row_bg, focus, hit, theme),
+                settings,
+            );
             if row.fill.is_none()
                 && let Some(v) = seg.verse
                 && x > x0
             {
-                zones.push(ClickZone { y, x0, x1: x, verse: v });
+                zones.push(ClickZone {
+                    y,
+                    x0,
+                    x1: x,
+                    verse: v,
+                });
             }
         }
         if let Some(v) = row.fill {
-            zones.push(ClickZone { y, x0: col.x, x1: col.right(), verse: v });
+            zones.push(ClickZone {
+                y,
+                x0: col.x,
+                x1: col.right(),
+                verse: v,
+            });
         }
         if let Some(mark) = theme.mark
             && row.covers(focus)
             && col.x > 0
             && let Some(cell) = buf.cell_mut((col.x - 1, y))
         {
-            cell.set_symbol(mark).set_style(Style::default().fg(theme.accent));
+            cell.set_symbol(mark)
+                .set_style(Style::default().fg(theme.accent));
         }
     }
 }
@@ -403,7 +526,17 @@ fn seg_style(seg: &Seg, row_bg: Color, focus: u16, hit: Option<u16>, theme: &The
 /// A thumb on the pane's right edge showing where the viewport sits in the
 /// chapter. Framed panes draw it over the border.
 #[allow(clippy::too_many_arguments)]
-fn scrollbar(buf: &mut Buffer, x: u16, y: u16, h: u16, total: usize, start: usize, visible: usize, theme: &Theme, framed: bool) {
+fn scrollbar(
+    buf: &mut Buffer,
+    x: u16,
+    y: u16,
+    h: u16,
+    total: usize,
+    start: usize,
+    visible: usize,
+    theme: &Theme,
+    framed: bool,
+) {
     let h = h as usize;
     if total <= visible || h == 0 {
         return;
@@ -417,9 +550,11 @@ fn scrollbar(buf: &mut Buffer, x: u16, y: u16, h: u16, total: usize, start: usiz
             continue;
         };
         if on {
-            cell.set_symbol("┃").set_style(Style::default().fg(theme.accent));
+            cell.set_symbol("┃")
+                .set_style(Style::default().fg(theme.accent));
         } else if !framed {
-            cell.set_symbol("│").set_style(Style::default().fg(theme.faint));
+            cell.set_symbol("│")
+                .set_style(Style::default().fg(theme.faint));
         }
     }
 }
@@ -440,7 +575,11 @@ fn highlighted_verse_for(app: &App, cr: &crate::reference::BibleChapterReference
 
 /// Bordered full-screen view with a title.
 fn screen_block(theme: &Theme, title: Line<'static>) -> Block<'static> {
-    let edge = if theme.overlay == Edge::None { Edge::Plain } else { theme.overlay };
+    let edge = if theme.overlay == Edge::None {
+        Edge::Plain
+    } else {
+        theme.overlay
+    };
     theme.block(edge, theme.border).title(title)
 }
 
@@ -460,7 +599,10 @@ fn status_or_hints(app: &App, theme: &Theme, pairs: &[(&str, &str)]) -> Line<'st
     if app.status.is_empty() {
         hint_line(theme, pairs)
     } else {
-        Line::from(Span::styled(format!(" {}", sanitize_one_line(&app.status)), Style::default().fg(theme.fg)))
+        Line::from(Span::styled(
+            format!(" {}", sanitize_one_line(&app.status)),
+            Style::default().fg(theme.fg),
+        ))
     }
 }
 
@@ -469,18 +611,36 @@ fn draw_manager(f: &mut Frame, app: &mut App, area: Rect, theme: &Theme) {
         "({} available, {} installed{})",
         app.available.len(),
         app.installed.len(),
-        if app.refreshing_catalog { ", fetching catalog…" } else { "" }
+        if app.refreshing_catalog {
+            ", fetching catalog…"
+        } else {
+            ""
+        }
     );
-    let block = screen_block(theme, title_line(theme, "Translations", theme.accent2, counts));
+    let block = screen_block(
+        theme,
+        title_line(theme, "Translations", theme.accent2, counts),
+    );
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    let rows = Layout::vertical([Constraint::Length(1), Constraint::Min(0), Constraint::Length(1)]).split(inner);
+    let rows = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Min(0),
+        Constraint::Length(1),
+    ])
+    .split(inner);
 
     let filter_line = Line::from(vec![
-        Span::styled(" filter ", Style::default().bg(theme.badge_bg).fg(theme.badge_fg)),
+        Span::styled(
+            " filter ",
+            Style::default().bg(theme.badge_bg).fg(theme.badge_fg),
+        ),
         Span::raw(" "),
-        Span::styled(app.manager_filter.value().to_string(), Style::default().fg(theme.fg)),
+        Span::styled(
+            app.manager_filter.value().to_string(),
+            Style::default().fg(theme.fg),
+        ),
         Span::styled("│", Style::default().fg(theme.accent)),
     ]);
     f.render_widget(Paragraph::new(filter_line), rows[0]);
@@ -513,22 +673,38 @@ fn draw_manager(f: &mut Frame, app: &mut App, area: Rect, theme: &Theme) {
     // highlighted row visible. Without this the cursor walks off-screen
     // for catalogs longer than the pane.
     let total = indices.len();
-    let cursor = if total == 0 { None } else { Some(app.manager_cursor.min(total - 1)) };
+    let cursor = if total == 0 {
+        None
+    } else {
+        Some(app.manager_cursor.min(total - 1))
+    };
     app.manager_list_state.select(cursor);
     let list = List::new(items).highlight_style(Style::default().bg(theme.sel_bg));
     f.render_stateful_widget(list, rows[1], &mut app.manager_list_state);
 
-    let bottom = status_or_hints(app, theme, &[
-        ("Enter", "install/uninstall"),
-        ("^R", "refresh"),
-        ("↑↓", "move"),
-        ("Esc", "back"),
-    ]);
+    let bottom = status_or_hints(
+        app,
+        theme,
+        &[
+            ("Enter", "install/uninstall"),
+            ("^R", "refresh"),
+            ("↑↓", "move"),
+            ("Esc", "back"),
+        ],
+    );
     f.render_widget(Paragraph::new(bottom), rows[2]);
 }
 
 fn draw_bookmarks(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
-    let block = screen_block(theme, title_line(theme, "Bookmarks", theme.title2, format!("({})", app.bookmarks.len())));
+    let block = screen_block(
+        theme,
+        title_line(
+            theme,
+            "Bookmarks",
+            theme.title2,
+            format!("({})", app.bookmarks.len()),
+        ),
+    );
     let inner = block.inner(area);
     f.render_widget(block, area);
 
@@ -551,7 +727,10 @@ fn draw_bookmarks(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
             Span::styled(" to add one with a multi-line note.", theme.dim()),
         ]);
         f.render_widget(empty, rows[0]);
-        f.render_widget(Paragraph::new(status_or_hints(app, theme, &footer[..5])), rows[1]);
+        f.render_widget(
+            Paragraph::new(status_or_hints(app, theme, &footer[..5])),
+            rows[1],
+        );
         return;
     }
 
@@ -583,18 +762,31 @@ fn draw_bookmarks(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
                 Style::default()
             };
             let note_first_line = bm.note.split('\n').next().unwrap_or("");
-            let line_count = if bm.note.is_empty() { 0 } else { bm.note.split('\n').count() };
+            let line_count = if bm.note.is_empty() {
+                0
+            } else {
+                bm.note.split('\n').count()
+            };
             let mut spans = vec![
                 Span::styled(" ★ ", Style::default().fg(theme.title2)),
-                Span::styled(format!("{:24}", bm.translation), Style::default().fg(theme.accent)),
+                Span::styled(
+                    format!("{:24}", bm.translation),
+                    Style::default().fg(theme.accent),
+                ),
                 Span::styled(" · ", theme.dim()),
                 Span::styled(ref_str, Style::default().fg(theme.title2).bold()),
             ];
             if line_count > 0 {
                 spans.push(Span::styled(" · ", theme.dim()));
-                spans.push(Span::styled(truncate(note_first_line, 60), Style::default().fg(theme.fg)));
+                spans.push(Span::styled(
+                    truncate(note_first_line, 60),
+                    Style::default().fg(theme.fg),
+                ));
                 if line_count > 1 {
-                    spans.push(Span::styled(format!("  ({} lines)", line_count), theme.dim()));
+                    spans.push(Span::styled(
+                        format!("  ({} lines)", line_count),
+                        theme.dim(),
+                    ));
                 }
             }
             ListItem::new(Line::from(spans)).style(row_style)
@@ -603,7 +795,10 @@ fn draw_bookmarks(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
     f.render_widget(List::new(items), layout[0]);
 
     f.render_widget(
-        Span::styled("─".repeat(layout[1].width as usize), Style::default().fg(theme.faint)),
+        Span::styled(
+            "─".repeat(layout[1].width as usize),
+            Style::default().fg(theme.faint),
+        ),
         layout[1],
     );
 
@@ -620,7 +815,10 @@ fn draw_bookmarks(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
         f.render_widget(para, layout[2]);
     }
 
-    f.render_widget(Paragraph::new(status_or_hints(app, theme, &footer)), layout[3]);
+    f.render_widget(
+        Paragraph::new(status_or_hints(app, theme, &footer)),
+        layout[3],
+    );
 }
 
 /// Split-screen layout for the note-editing mode: chapter pane on the
@@ -634,7 +832,8 @@ fn draw_note_editor_split(f: &mut Frame, app: &mut App, area: Rect, theme: &Them
         Constraint::Length(1),
     ])
     .split(area);
-    let panes = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).split(rows[1]);
+    let panes =
+        Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).split(rows[1]);
     chrome::draw_header(f, app, rows[0], rows[0], theme);
 
     if app.bible.is_some() {
@@ -647,21 +846,27 @@ fn draw_note_editor_split(f: &mut Frame, app: &mut App, area: Rect, theme: &Them
     draw_note_editor_pane(f, app, panes[1], editor_focused, theme);
 
     let hint = if app.note_editor_focus_reader {
-        hint_line(theme, &[
-            ("Tab", "switch to editor"),
-            ("↑↓", "verse"),
-            ("←→", "chapter"),
-            ("^S", "save note"),
-            ("Esc", "cancel"),
-        ])
+        hint_line(
+            theme,
+            &[
+                ("Tab", "switch to editor"),
+                ("↑↓", "verse"),
+                ("←→", "chapter"),
+                ("^S", "save note"),
+                ("Esc", "cancel"),
+            ],
+        )
     } else {
-        hint_line(theme, &[
-            ("Tab", "switch to reader"),
-            ("^S", "save"),
-            ("Esc", "cancel"),
-            ("Enter", "newline"),
-            ("↑↓←→", "move"),
-        ])
+        hint_line(
+            theme,
+            &[
+                ("Tab", "switch to reader"),
+                ("^S", "save"),
+                ("Esc", "cancel"),
+                ("Enter", "newline"),
+                ("↑↓←→", "move"),
+            ],
+        )
     };
     f.render_widget(hint, rows[2]);
 }
@@ -671,12 +876,19 @@ fn draw_note_editor_pane(f: &mut Frame, app: &App, area: Rect, focused: bool, th
         return;
     };
     let border_color = if focused { theme.title2 } else { theme.faint };
-    let edge = if theme.overlay == Edge::None { Edge::Plain } else { theme.overlay };
+    let edge = if theme.overlay == Edge::None {
+        Edge::Plain
+    } else {
+        theme.overlay
+    };
     let block = theme.block(edge, border_color).title(Line::from(vec![
         Span::raw(" "),
         Span::styled("Note", Style::default().fg(theme.title2).bold()),
         Span::styled(" — ", theme.dim()),
-        Span::styled(editor.label.clone(), Style::default().fg(theme.accent).bold()),
+        Span::styled(
+            editor.label.clone(),
+            Style::default().fg(theme.accent).bold(),
+        ),
         Span::raw(" "),
     ]));
     let inner = block.inner(area);
@@ -727,7 +939,10 @@ fn draw_plan_view(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
                 Style::default().fg(theme.title).bold(),
             ),
             Span::styled("  ·  ", theme.dim()),
-            Span::styled(format!("{}/{} days", done, total), Style::default().fg(theme.title2).bold()),
+            Span::styled(
+                format!("{}/{} days", done, total),
+                Style::default().fg(theme.title2).bold(),
+            ),
             Span::styled(format!(" ({}%) ", pct), theme.dim()),
         ]),
     );
@@ -750,7 +965,11 @@ fn draw_plan_view(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
         let is_today = daily.day == today;
         let is_done = app.plan_completed.contains(&daily.day);
 
-        let row_style = if is_cursor { Style::default().bg(theme.sel_bg) } else { Style::default() };
+        let row_style = if is_cursor {
+            Style::default().bg(theme.sel_bg)
+        } else {
+            Style::default()
+        };
         let (mark, mark_style) = if is_done {
             ("✓", Style::default().fg(theme.ok).bold())
         } else {
@@ -780,14 +999,18 @@ fn draw_plan_view(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
         f.render_widget(Line::from(spans).style(row_style), row_area);
     }
 
-    let hint = status_or_hints(app, theme, &[
-        ("Enter", "jump"),
-        ("m", "mark/unmark"),
-        ("t", "today"),
-        ("↑↓", "move"),
-        ("PgUp/Dn", "page"),
-        ("Esc", "back"),
-    ]);
+    let hint = status_or_hints(
+        app,
+        theme,
+        &[
+            ("Enter", "jump"),
+            ("m", "mark/unmark"),
+            ("t", "today"),
+            ("↑↓", "move"),
+            ("PgUp/Dn", "page"),
+            ("Esc", "back"),
+        ],
+    );
     f.render_widget(hint, layout[1]);
 }
 
@@ -818,9 +1041,14 @@ fn compute_editor_scroll(prev: usize, cursor_line: usize, visible: usize) -> usi
 
 fn draw_book_picker(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
     let w = 40u16.min(area.width.saturating_sub(4));
-    let h = (area.height * 7 / 10).max(8).min(area.height.saturating_sub(2));
+    let h = (area.height * 7 / 10)
+        .max(8)
+        .min(area.height.saturating_sub(2));
     let rect = chrome::centered(area, w, h);
-    let title = Line::from(Span::styled(format!(" {} ", theme.heading("Books")), Style::default().fg(theme.title).bold()));
+    let title = Line::from(Span::styled(
+        format!(" {} ", theme.heading("Books")),
+        Style::default().fg(theme.title).bold(),
+    ));
     let inner = chrome::card(f, rect, Some(title), theme);
 
     let layout = Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).split(inner);
@@ -843,7 +1071,11 @@ fn draw_book_picker(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
         };
         let is_cursor = i == app.book_picker_cursor;
         let is_current = cur_book_num == Some(book_num);
-        let row_style = if is_cursor { Style::default().bg(theme.sel_bg) } else { Style::default() };
+        let row_style = if is_cursor {
+            Style::default().bg(theme.sel_bg)
+        } else {
+            Style::default()
+        };
         let mark = if is_current { "•" } else { " " };
         let name_style = if is_current {
             Style::default().fg(theme.title2).bold()
@@ -851,7 +1083,10 @@ fn draw_book_picker(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
             Style::default().fg(theme.fg)
         };
         let spans = vec![
-            Span::styled(if is_cursor { "▌" } else { " " }, Style::default().fg(theme.accent)),
+            Span::styled(
+                if is_cursor { "▌" } else { " " },
+                Style::default().fg(theme.accent),
+            ),
             Span::styled(mark.to_string(), Style::default().fg(theme.title2)),
             Span::raw(" "),
             Span::styled(format!("{:>2}", book_num), theme.dim()),
@@ -861,23 +1096,41 @@ fn draw_book_picker(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
         f.render_widget(Line::from(spans).style(row_style), row_area);
     }
 
-    f.render_widget(hint_line(theme, &[("Enter", "jump"), ("↑↓", "move"), ("Esc", "back")]), layout[1]);
+    f.render_widget(
+        hint_line(theme, &[("Enter", "jump"), ("↑↓", "move"), ("Esc", "back")]),
+        layout[1],
+    );
 }
 
 fn draw_pick_secondary(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
-    let rect = chrome::centered(area, 72.min(area.width.saturating_sub(4)), (area.height * 6 / 10).max(6));
+    let rect = chrome::centered(
+        area,
+        72.min(area.width.saturating_sub(4)),
+        (area.height * 6 / 10).max(6),
+    );
     let title = Line::from(Span::styled(
         format!(" {} ", theme.heading("Parallel translation")),
         Style::default().fg(theme.accent2).bold(),
     ));
     let inner = chrome::card(f, rect, Some(title), theme);
 
-    let primary_id = app.bible.as_ref().map(|b| b.translation.id.as_str()).unwrap_or("");
-    let candidates: Vec<&TranslationInfo> = app.installed.iter().filter(|t| t.id != primary_id).collect();
+    let primary_id = app
+        .bible
+        .as_ref()
+        .map(|b| b.translation.id.as_str())
+        .unwrap_or("");
+    let candidates: Vec<&TranslationInfo> = app
+        .installed
+        .iter()
+        .filter(|t| t.id != primary_id)
+        .collect();
 
     if candidates.is_empty() {
         f.render_widget(
-            Span::styled("  Install another translation first (T → install).", theme.dim()),
+            Span::styled(
+                "  Install another translation first (T → install).",
+                theme.dim(),
+            ),
             inner,
         );
         return;
@@ -888,10 +1141,20 @@ fn draw_pick_secondary(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
         .enumerate()
         .map(|(i, t)| {
             let sel = i == app.secondary_picker_cursor;
-            let style = if sel { Style::default().bg(theme.sel_bg) } else { Style::default() };
+            let style = if sel {
+                Style::default().bg(theme.sel_bg)
+            } else {
+                Style::default()
+            };
             ListItem::new(Line::from(vec![
-                Span::styled(if sel { "▌" } else { " " }, Style::default().fg(theme.accent)),
-                Span::styled(format!(" {:8}", chrome::short_name(t)), Style::default().fg(theme.accent2).bold()),
+                Span::styled(
+                    if sel { "▌" } else { " " },
+                    Style::default().fg(theme.accent),
+                ),
+                Span::styled(
+                    format!(" {:8}", chrome::short_name(t)),
+                    Style::default().fg(theme.accent2).bold(),
+                ),
                 Span::raw(" "),
                 Span::styled(t.display_name.clone(), Style::default().fg(theme.fg)),
                 Span::raw("  "),
@@ -914,7 +1177,12 @@ fn draw_download_popup(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
     ));
     let inner = chrome::card(f, rect, Some(title), theme);
 
-    let rows = Layout::vertical([Constraint::Length(2), Constraint::Length(1), Constraint::Min(0)]).split(inner);
+    let rows = Layout::vertical([
+        Constraint::Length(2),
+        Constraint::Length(1),
+        Constraint::Min(0),
+    ])
+    .split(inner);
     f.render_widget(
         Paragraph::new(Line::from(vec![
             Span::raw(" "),
@@ -935,7 +1203,10 @@ fn draw_download_popup(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
         .gauge_style(Style::default().fg(theme.ok).bg(theme.sel_bg))
         .percent(pct)
         .label(label);
-    f.render_widget(g, Rect::new(rows[1].x + 1, rows[1].y, rows[1].width.saturating_sub(2), 1));
+    f.render_widget(
+        g,
+        Rect::new(rows[1].x + 1, rows[1].y, rows[1].width.saturating_sub(2), 1),
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -951,7 +1222,8 @@ fn draw_settings(f: &mut Frame, app: &mut App, area: Rect, theme: &Theme) {
     .split(area);
 
     // 60/40 split: live-preview pane on the left, settings list on the right.
-    let panes = Layout::horizontal([Constraint::Percentage(60), Constraint::Percentage(40)]).split(rows[1]);
+    let panes =
+        Layout::horizontal([Constraint::Percentage(60), Constraint::Percentage(40)]).split(rows[1]);
     chrome::draw_header(f, app, rows[0], rows[0], theme);
 
     if app.bible.is_some() {
@@ -962,13 +1234,19 @@ fn draw_settings(f: &mut Frame, app: &mut App, area: Rect, theme: &Theme) {
     draw_settings_panel(f, app, panes[1], theme);
 
     f.render_widget(
-        hint_line(theme, &[("↑↓", "move"), ("←→", "change"), ("Esc", "save & close")]),
+        hint_line(
+            theme,
+            &[("↑↓", "move"), ("←→", "change"), ("Esc", "save & close")],
+        ),
         rows[2],
     );
 }
 
 fn draw_settings_panel(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
-    let block = screen_block(theme, title_line(theme, "Settings", theme.title, String::new()));
+    let block = screen_block(
+        theme,
+        title_line(theme, "Settings", theme.title, String::new()),
+    );
     let inner = block.inner(area);
     f.render_widget(block, area);
 
@@ -987,14 +1265,15 @@ fn draw_settings_panel(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
         .map(|(i, row)| match row {
             SettingsRow::Header(h) => Line::from(vec![
                 Span::raw(" "),
-                Span::styled(
-                    theme.heading(h),
-                    Style::default().fg(theme.title2).bold(),
-                ),
+                Span::styled(theme.heading(h), Style::default().fg(theme.title2).bold()),
             ]),
             SettingsRow::Item(it) => {
                 let selected = i == cursor_layout_row;
-                let row_style = if selected { Style::default().bg(theme.sel_bg) } else { Style::default() };
+                let row_style = if selected {
+                    Style::default().bg(theme.sel_bg)
+                } else {
+                    Style::default()
+                };
                 let label_style = if selected {
                     Style::default().fg(theme.fg).bold()
                 } else {
@@ -1007,7 +1286,10 @@ fn draw_settings_panel(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
                 };
                 let arrows = if selected { "‹  ›" } else { "    " };
                 Line::from(vec![
-                    Span::styled(if selected { " ▌" } else { "  " }, Style::default().fg(theme.accent).patch(row_style)),
+                    Span::styled(
+                        if selected { " ▌" } else { "  " },
+                        Style::default().fg(theme.accent).patch(row_style),
+                    ),
                     Span::styled(format!("{:<20}", it.label()), label_style.patch(row_style)),
                     Span::styled(it.value(&app.settings), value_style.patch(row_style)),
                     Span::raw("  "),
@@ -1104,7 +1386,11 @@ pub(super) const SETTINGS_ITEMS: &[SettingItem] = &[
 ];
 
 fn on_off(b: bool) -> String {
-    if b { "on".to_string() } else { "off".to_string() }
+    if b {
+        "on".to_string()
+    } else {
+        "off".to_string()
+    }
 }
 
 impl SettingItem {
@@ -1171,9 +1457,13 @@ impl SettingItem {
                 VerseNumberStyle::Superscript => "superscript".to_string(),
                 VerseNumberStyle::Hidden => "hidden".to_string(),
             },
-            SettingItem::PaddingDefault => format!("+{}", s.typography.script_letter_padding.default),
+            SettingItem::PaddingDefault => {
+                format!("+{}", s.typography.script_letter_padding.default)
+            }
             SettingItem::PaddingTamil => format!("+{}", s.typography.script_letter_padding.tamil),
-            SettingItem::PaddingDevanagari => format!("+{}", s.typography.script_letter_padding.devanagari),
+            SettingItem::PaddingDevanagari => {
+                format!("+{}", s.typography.script_letter_padding.devanagari)
+            }
             SettingItem::PaddingArabic => format!("+{}", s.typography.script_letter_padding.arabic),
             SettingItem::PaddingHebrew => format!("+{}", s.typography.script_letter_padding.hebrew),
             SettingItem::PaddingCjk => format!("+{}", s.typography.script_letter_padding.cjk),
@@ -1197,14 +1487,21 @@ impl SettingItem {
         if matches!(self, SettingItem::DefaultTranslation) {
             // Reads app.installed alongside the settings write.
             let cur = app.settings.reader.default_translation.clone();
-            app.settings.reader.default_translation = cycle_default_translation(&cur, &app.installed, dir);
+            app.settings.reader.default_translation =
+                cycle_default_translation(&cur, &app.installed, dir);
             return;
         }
         let s = &mut app.settings;
         match self {
-            SettingItem::ThemePreset => s.theme.preset = cycle_in(&ThemePreset::ALL, s.theme.preset, dir),
+            SettingItem::ThemePreset => {
+                s.theme.preset = cycle_in(&ThemePreset::ALL, s.theme.preset, dir)
+            }
             SettingItem::Layout => {
-                let order = [ReadingLayout::Auto, ReadingLayout::Verses, ReadingLayout::Prose];
+                let order = [
+                    ReadingLayout::Auto,
+                    ReadingLayout::Verses,
+                    ReadingLayout::Prose,
+                ];
                 s.reader.layout = cycle_in(&order, s.reader.layout, dir);
             }
             SettingItem::Columns => {
@@ -1212,7 +1509,9 @@ impl SettingItem {
                 s.reader.columns = cycle_in(&order, s.reader.columns, dir);
             }
             SettingItem::DropCap => s.reader.drop_cap = !s.reader.drop_cap,
-            SettingItem::MaxColumns => s.reader.max_columns = step_max_columns(s.reader.max_columns, dir),
+            SettingItem::MaxColumns => {
+                s.reader.max_columns = step_max_columns(s.reader.max_columns, dir)
+            }
             SettingItem::Mouse => s.reader.mouse = !s.reader.mouse,
             // Bool toggle — direction doesn't matter, h/l/Enter all flip.
             SettingItem::JustifyText => s.typography.justify = !s.typography.justify,
@@ -1231,7 +1530,8 @@ impl SettingItem {
                     VerseNumberStyle::Superscript,
                     VerseNumberStyle::Hidden,
                 ];
-                s.typography.verse_number_style = cycle_in(&order, s.typography.verse_number_style, dir);
+                s.typography.verse_number_style =
+                    cycle_in(&order, s.typography.verse_number_style, dir);
             }
             SettingItem::PaddingDefault => {
                 let p = &mut s.typography.script_letter_padding.default;
@@ -1258,7 +1558,11 @@ impl SettingItem {
                 *p = clamp_u8(*p, dir, 0, 3);
             }
             SettingItem::ParallelDivider => {
-                let order = [DividerStyle::Single, DividerStyle::Double, DividerStyle::None];
+                let order = [
+                    DividerStyle::Single,
+                    DividerStyle::Double,
+                    DividerStyle::None,
+                ];
                 s.parallel.divider = cycle_in(&order, s.parallel.divider, dir);
             }
             SettingItem::DefaultTranslation => {}
@@ -1276,10 +1580,12 @@ fn step_max_columns(v: u16, dir: i32) -> u16 {
     let mut steps: Vec<u16> = vec![0];
     steps.extend((60..=200).step_by(5));
     steps.push(FULL_WIDTH);
-    let pos = steps
-        .iter()
-        .position(|s| *s == v)
-        .unwrap_or_else(|| steps.iter().position(|s| *s >= v && *s != 0).unwrap_or(steps.len() - 1));
+    let pos = steps.iter().position(|s| *s == v).unwrap_or_else(|| {
+        steps
+            .iter()
+            .position(|s| *s >= v && *s != 0)
+            .unwrap_or(steps.len() - 1)
+    });
     let next = (pos as i32 + dir).clamp(0, steps.len() as i32 - 1);
     steps[next as usize]
 }

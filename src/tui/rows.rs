@@ -66,8 +66,16 @@ pub(super) fn verse_rows(chapter: &Chapter, avail: usize, settings: &Settings) -
             let (prefix, kind) = verse_prefix(n, style, i != 0);
             rows.push(Row {
                 segs: vec![
-                    Seg { text: prefix, kind, verse: Some(n) },
-                    Seg { text: content, kind: SegKind::Text, verse: Some(n) },
+                    Seg {
+                        text: prefix,
+                        kind,
+                        verse: Some(n),
+                    },
+                    Seg {
+                        text: content,
+                        kind: SegKind::Text,
+                        verse: Some(n),
+                    },
                 ],
                 verses: Some((n, n)),
                 fill: Some(n),
@@ -129,7 +137,9 @@ pub(super) fn prose_rows(
     let numbers = settings.typography.verse_number_style != VerseNumberStyle::Hidden;
     let gap = 1 + settings.typography.word_padding as usize;
     let cap = (drop_cap && !chapter.verses.is_empty()).then(|| drop_cap_lines(chapter.number));
-    let cap_w = cap.as_ref().map_or(0, |c| c[0].chars().count() + DROP_CAP_GAP);
+    let cap_w = cap
+        .as_ref()
+        .map_or(0, |c| c[0].chars().count() + DROP_CAP_GAP);
 
     // Paragraphs of tokens.
     let mut paragraphs: Vec<Vec<Token>> = vec![Vec::new()];
@@ -150,10 +160,22 @@ pub(super) fn prose_rows(
                     verse: Some(verse.number),
                 });
             }
-            let text = if opening && wi < 3 { word.to_uppercase() } else { word.to_string() };
-            segs.push(Seg { text, kind: SegKind::Text, verse: Some(verse.number) });
+            let text = if opening && wi < 3 {
+                word.to_uppercase()
+            } else {
+                word.to_string()
+            };
+            segs.push(Seg {
+                text,
+                kind: SegKind::Text,
+                verse: Some(verse.number),
+            });
             let width = segs.iter().map(|s| str_width(&s.text, settings)).sum();
-            paragraphs.last_mut().unwrap().push(Token { segs, width, verse: verse.number });
+            paragraphs.last_mut().unwrap().push(Token {
+                segs,
+                width,
+                verse: verse.number,
+            });
         }
     }
 
@@ -172,7 +194,11 @@ pub(super) fn prose_rows(
         }
         let start = vrow;
         let avail = |k: usize| {
-            if cap.is_some() && start + k * step < 3 { width.saturating_sub(cap_w) } else { width }
+            if cap.is_some() && start + k * step < 3 {
+                width.saturating_sub(cap_w)
+            } else {
+                width
+            }
         };
         let lines = fill_lines(para, gap, avail);
         let last = lines.len().saturating_sub(1);
@@ -219,7 +245,11 @@ fn fill_lines(tokens: &[Token], gap: usize, avail: impl Fn(usize) -> usize) -> V
     let mut cur: Vec<&Token> = Vec::new();
     let mut cur_w = 0;
     for t in tokens {
-        let need = if cur.is_empty() { t.width } else { cur_w + gap + t.width };
+        let need = if cur.is_empty() {
+            t.width
+        } else {
+            cur_w + gap + t.width
+        };
         if !cur.is_empty() && need > avail(lines.len()) {
             lines.push(std::mem::take(&mut cur));
             cur_w = t.width;
@@ -246,7 +276,11 @@ fn push_tokens(row: &mut Row, line: &[&Token], width: usize, gap: usize, justify
         if i > 0 {
             let w = base + usize::from(i <= extra);
             let shared = (line[i - 1].verse == t.verse).then_some(t.verse);
-            row.segs.push(Seg { text: " ".repeat(w), kind: SegKind::Space, verse: shared });
+            row.segs.push(Seg {
+                text: " ".repeat(w),
+                kind: SegKind::Space,
+                verse: shared,
+            });
         }
         row.segs.extend(t.segs.iter().cloned());
     }
@@ -279,7 +313,12 @@ const DIGITS: [[u8; 6]; 10] = [
 
 pub(super) fn drop_cap_lines(n: u16) -> [String; 3] {
     let mut out: [String; 3] = Default::default();
-    for (di, d) in n.to_string().bytes().map(|b| (b - b'0') as usize).enumerate() {
+    for (di, d) in n
+        .to_string()
+        .bytes()
+        .map(|b| (b - b'0') as usize)
+        .enumerate()
+    {
         for (row, line) in out.iter_mut().enumerate() {
             if di > 0 {
                 line.push(' ');
@@ -304,7 +343,13 @@ pub(super) fn drop_cap_lines(n: u16) -> [String; 3] {
 /// - otherwise keep `prev` while the focus is inside the viewport and scroll
 ///   just enough when it leaves an edge. A verse taller than the viewport
 ///   anchors at its first row.
-pub(super) fn compute_scroll(rows: &[Row], focus: u16, visible: usize, prev: usize, pin: bool) -> usize {
+pub(super) fn compute_scroll(
+    rows: &[Row],
+    focus: u16,
+    visible: usize,
+    prev: usize,
+    pin: bool,
+) -> usize {
     if visible == 0 || rows.is_empty() {
         return prev;
     }
@@ -317,11 +362,19 @@ pub(super) fn compute_scroll(rows: &[Row], focus: u16, visible: usize, prev: usi
     let new = if pin {
         // Jumps land near the top with a row of context; an early verse
         // shows the chapter's opening instead.
-        if first < visible / 3 { 0 } else { first.saturating_sub(1) }
+        if first < visible / 3 {
+            0
+        } else {
+            first.saturating_sub(1)
+        }
     } else if first < prev {
         first
     } else if last >= prev + visible {
-        if last + 1 - first > visible { first } else { (last + 1).saturating_sub(visible) }
+        if last + 1 - first > visible {
+            first
+        } else {
+            (last + 1).saturating_sub(visible)
+        }
     } else {
         prev
     };
@@ -369,7 +422,11 @@ fn width_with(g: &str, marks: Option<MarkWidths>) -> usize {
         let terminal = if counted { m.spacing } else { m.extending };
         adjust += terminal as isize - counted as isize;
     }
-    if base == 0 { 0 } else { (base as isize + adjust).max(1) as usize }
+    if base == 0 {
+        0
+    } else {
+        (base as isize + adjust).max(1) as usize
+    }
 }
 
 /// Write `text` one grapheme cluster at a time and return the next column.
@@ -407,7 +464,9 @@ pub(super) fn write_graphemes(
         }
         for i in 1..w {
             if let Some(cell) = buf.cell_mut((x + i, y)) {
-                cell.set_symbol("").set_diff_option(CellDiffOption::Skip).set_style(style);
+                cell.set_symbol("")
+                    .set_diff_option(CellDiffOption::Skip)
+                    .set_style(style);
             }
         }
         for i in 0..pad {
@@ -421,13 +480,19 @@ pub(super) fn write_graphemes(
 }
 
 pub(super) fn str_width(s: &str, settings: &Settings) -> usize {
-    grapheme_cells(s, settings).iter().map(|(_, _, cells)| cells).sum()
+    grapheme_cells(s, settings)
+        .iter()
+        .map(|(_, _, cells)| cells)
+        .sum()
 }
 
 /// Each grapheme of `text` with the cells the terminal advances for it and
 /// the cells it occupies on screen (the same, unless it needs room for its
 /// glyph or letter padding).
-pub(super) fn grapheme_cells<'a>(text: &'a str, settings: &Settings) -> Vec<(&'a str, usize, usize)> {
+pub(super) fn grapheme_cells<'a>(
+    text: &'a str,
+    settings: &Settings,
+) -> Vec<(&'a str, usize, usize)> {
     cells_with(text, settings, MARK_WIDTHS.get().copied())
 }
 
@@ -439,14 +504,19 @@ pub(super) fn grapheme_cells<'a>(text: &'a str, settings: &Settings) -> Vec<(&'a
 /// on by more than side bearings absorb.
 const GLYPH_OVERLAP: f32 = 0.1;
 
-fn cells_with<'a>(text: &'a str, settings: &Settings, marks: Option<MarkWidths>) -> Vec<(&'a str, usize, usize)> {
+fn cells_with<'a>(
+    text: &'a str,
+    settings: &Settings,
+    marks: Option<MarkWidths>,
+) -> Vec<(&'a str, usize, usize)> {
     UnicodeSegmentation::graphemes(text, true)
         .map(|g| {
             let term = width_with(g, marks);
             if term == 0 {
                 return (g, 0, 0);
             }
-            let glyph = super::tamil::width(g).map_or(term, |w| (w - GLYPH_OVERLAP).ceil().max(1.0) as usize);
+            let glyph = super::tamil::width(g)
+                .map_or(term, |w| (w - GLYPH_OVERLAP).ceil().max(1.0) as usize);
             (g, term, glyph.max(term) + padding_cells(g, settings))
         })
         .collect()
@@ -454,7 +524,9 @@ fn cells_with<'a>(text: &'a str, settings: &Settings, marks: Option<MarkWidths>)
 
 /// Cells a single grapheme occupies on its own; see [`grapheme_cells`].
 pub(super) fn display_width(g: &str, settings: &Settings) -> usize {
-    grapheme_cells(g, settings).first().map_or(0, |(_, _, cells)| *cells)
+    grapheme_cells(g, settings)
+        .first()
+        .map_or(0, |(_, _, cells)| *cells)
 }
 
 /// Extra cells after `g` from the per-script letter padding setting.
@@ -466,12 +538,13 @@ fn padding_cells(g: &str, settings: &Settings) -> usize {
 }
 
 fn is_super_digit(c: char) -> bool {
-    matches!(c,
+    matches!(
+        c,
         '\u{2070}'              // ⁰
         | '\u{00B9}'            // ¹
         | '\u{00B2}'            // ²
         | '\u{00B3}'            // ³
-        | '\u{2074}'..='\u{2079}'   // ⁴-⁹
+        | '\u{2074}'..='\u{2079}' // ⁴-⁹
     )
 }
 
@@ -501,9 +574,9 @@ fn grapheme_script(g: &str) -> Script {
             '\u{0900}'..='\u{097F}' => Script::Devanagari,
             '\u{0600}'..='\u{06FF}' | '\u{0750}'..='\u{077F}' => Script::Arabic,
             '\u{0590}'..='\u{05FF}' => Script::Hebrew,
-            '\u{4E00}'..='\u{9FFF}'
-            | '\u{3040}'..='\u{30FF}'
-            | '\u{AC00}'..='\u{D7AF}' => Script::Cjk,
+            '\u{4E00}'..='\u{9FFF}' | '\u{3040}'..='\u{30FF}' | '\u{AC00}'..='\u{D7AF}' => {
+                Script::Cjk
+            }
             _ => Script::Other,
         };
     }
@@ -659,7 +732,10 @@ mod tests {
             verses: texts
                 .iter()
                 .enumerate()
-                .map(|(i, t)| Verse { number: i as u16 + 1, text: t.to_string() })
+                .map(|(i, t)| Verse {
+                    number: i as u16 + 1,
+                    text: t.to_string(),
+                })
                 .collect(),
         }
     }
@@ -674,14 +750,20 @@ mod tests {
         // Two words can't fill 40 cells without huge gaps: left ragged.
         assert_eq!(justify_line("in him", 40, &s), "in him");
         // A modest stretch is still justified.
-        assert_eq!(justify_line("in him was life", 18, &s), "in  him  was  life");
+        assert_eq!(
+            justify_line("in him was life", 18, &s),
+            "in  him  was  life"
+        );
     }
 
     #[test]
     fn tamil_syllables_get_room_for_their_glyphs() {
         let s = Settings::default();
         let word = "இருந்தது";
-        let on_base = Some(MarkWidths { spacing: false, extending: false });
+        let on_base = Some(MarkWidths {
+            spacing: false,
+            extending: false,
+        });
         for marks in [on_base, None] {
             for (g, term, cells) in cells_with(word, &s, marks) {
                 let w = super::super::tamil::width(g).unwrap();
@@ -689,7 +771,10 @@ mod tests {
                 // glyph runs well into the next syllable, never a spare cell.
                 assert!(cells >= term);
                 assert!(cells as f32 >= w - GLYPH_OVERLAP, "{g}: {cells} for {w}");
-                assert!(cells == term || (cells as f32) < w - GLYPH_OVERLAP + 1.0, "{g}");
+                assert!(
+                    cells == term || (cells as f32) < w - GLYPH_OVERLAP + 1.0,
+                    "{g}"
+                );
             }
         }
     }
@@ -701,11 +786,20 @@ mod tests {
         let pulli = "\u{0B95}\u{0BCD}"; // க்: virama, never a cell
         assert_eq!((width_with(ki, None), width_with(kaa, None)), (2, 1));
         // tmux, macOS wcwidth: signs sit on their consonant.
-        let on_base = Some(MarkWidths { spacing: false, extending: false });
+        let on_base = Some(MarkWidths {
+            spacing: false,
+            extending: false,
+        });
         assert_eq!((width_with(ki, on_base), width_with(kaa, on_base)), (1, 1));
         // Terminals that give every spacing sign a cell.
-        let own_cell = Some(MarkWidths { spacing: true, extending: true });
-        assert_eq!((width_with(ki, own_cell), width_with(kaa, own_cell)), (2, 2));
+        let own_cell = Some(MarkWidths {
+            spacing: true,
+            extending: true,
+        });
+        assert_eq!(
+            (width_with(ki, own_cell), width_with(kaa, own_cell)),
+            (2, 2)
+        );
         for m in [None, on_base, own_cell] {
             assert_eq!(width_with(pulli, m), 1);
             assert_eq!(width_with("中", m), 2);
@@ -716,7 +810,10 @@ mod tests {
     #[test]
     fn drop_cap_digits_are_three_rows_of_equal_width() {
         let one = drop_cap_lines(1);
-        assert_eq!(one, ["▄██ ".to_string(), " ██ ".to_string(), "▄██▄".to_string()]);
+        assert_eq!(
+            one,
+            ["▄██ ".to_string(), " ██ ".to_string(), "▄██▄".to_string()]
+        );
         let big = drop_cap_lines(119);
         assert!(big.iter().all(|l| l.chars().count() == 14));
     }
@@ -734,8 +831,15 @@ mod tests {
         );
         for width in [20, 37, 60] {
             let rows = prose_rows(&ch, width, &s, true);
-            assert!(rows.iter().all(|r| row_width(r, &s) <= width), "width {width}");
-            let mut seen: Vec<u16> = rows.iter().filter_map(|r| r.verses).flat_map(|(a, b)| a..=b).collect();
+            assert!(
+                rows.iter().all(|r| row_width(r, &s) <= width),
+                "width {width}"
+            );
+            let mut seen: Vec<u16> = rows
+                .iter()
+                .filter_map(|r| r.verses)
+                .flat_map(|(a, b)| a..=b)
+                .collect();
             seen.dedup();
             assert_eq!(seen, vec![1, 2, 3]);
             // Opening words in capitals beside the numeral.
@@ -762,7 +866,10 @@ mod tests {
     fn short_chapter_still_shows_whole_drop_cap() {
         let s = Settings::default();
         let rows = prose_rows(&chapter(117, &["O praise the LORD."]), 40, &s, true);
-        let caps = rows.iter().filter(|r| r.segs.first().is_some_and(|g| g.kind == SegKind::DropCap)).count();
+        let caps = rows
+            .iter()
+            .filter(|r| r.segs.first().is_some_and(|g| g.kind == SegKind::DropCap))
+            .count();
         assert_eq!(caps, 3);
     }
 

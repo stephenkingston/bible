@@ -5,8 +5,7 @@ use crate::bible::Bible;
 use crate::error::{Error, Result};
 use crate::storage;
 
-const RAW_URL_BASE: &str =
-    "https://raw.githubusercontent.com/Beblia/Holy-Bible-XML-Format/master/";
+const RAW_URL_BASE: &str = "https://raw.githubusercontent.com/Beblia/Holy-Bible-XML-Format/master/";
 
 // Largest Beblia XML files we expect. KJV is ~4MB; concordance variants and
 // some Asian-language texts can run larger. We cap at 32MB to bound memory
@@ -30,11 +29,7 @@ pub fn install(id: &str, mut progress: Option<Progress<'_>>) -> Result<Bible> {
         .map_err(|e| Error::Http(e.to_string()))?;
 
     let total = resp.body().content_length();
-    let mut reader = resp
-        .body_mut()
-        .with_config()
-        .limit(MAX_BODY_BYTES)
-        .reader();
+    let mut reader = resp.body_mut().with_config().limit(MAX_BODY_BYTES).reader();
 
     let mut buf = Vec::with_capacity(total.unwrap_or(2 * 1024 * 1024) as usize);
     let mut chunk = [0u8; 16 * 1024];

@@ -51,9 +51,19 @@ pub(crate) type Tui = Terminal<CrosstermBackend<Stdout>>;
 pub(crate) enum AppEvent {
     Key(KeyEvent),
     Tick,
-    DownloadProgress { id: String, bytes: u64, total: Option<u64> },
-    DownloadDone { id: String, result: std::result::Result<TranslationInfo, String> },
-    SearchDone { query: String, hits: Vec<BibleVerseReference> },
+    DownloadProgress {
+        id: String,
+        bytes: u64,
+        total: Option<u64>,
+    },
+    DownloadDone {
+        id: String,
+        result: std::result::Result<TranslationInfo, String>,
+    },
+    SearchDone {
+        query: String,
+        hits: Vec<BibleVerseReference>,
+    },
     CatalogRefreshed(std::result::Result<Vec<AvailableTranslation>, String>),
     Mouse(MouseEvent),
 }
@@ -117,9 +127,7 @@ fn format_bookmark_ref(book_number: u8, chapter: u16, verse: Option<u16>) -> Str
 }
 
 fn same_chapter(a: &NavSnapshot, b: &NavSnapshot) -> bool {
-    a.translation == b.translation
-        && a.book_number == b.book_number
-        && a.chapter == b.chapter
+    a.translation == b.translation && a.book_number == b.book_number && a.chapter == b.chapter
 }
 
 /// Cross-platform clipboard write. Returns Err with a human-readable
@@ -313,7 +321,10 @@ fn probe_mark_widths(out: &mut Stdout) -> Option<rows::MarkWidths> {
         crossterm::terminal::Clear(crossterm::terminal::ClearType::All),
         crossterm::cursor::MoveTo(0, 0)
     );
-    Some(rows::MarkWidths { spacing: spacing? >= 2, extending: extending? >= 2 })
+    Some(rows::MarkWidths {
+        spacing: spacing? >= 2,
+        extending: extending? >= 2,
+    })
 }
 
 /// ANSI clear + blank "previous" buffer → next draw is a full repaint.
@@ -443,8 +454,7 @@ impl App {
         // fresh — matches the "discard on year change" decision.
         let plan_year = crate::plan::current_year();
         let plan = crate::plan::generate_bible_in_a_year(plan_year);
-        let plan_completed =
-            crate::plan::load_completed_for(plan_year, &plan.plan_id);
+        let plan_completed = crate::plan::load_completed_for(plan_year, &plan.plan_id);
         Ok(Self {
             bible: None,
             installed,
@@ -518,9 +528,7 @@ impl App {
             p.translation.clone()
         } else {
             let default_id = self.settings.reader.default_translation.trim();
-            if !default_id.is_empty()
-                && self.installed.iter().any(|t| t.id == default_id)
-            {
+            if !default_id.is_empty() && self.installed.iter().any(|t| t.id == default_id) {
                 default_id.to_string()
             } else {
                 self.installed[0].id.clone()
@@ -671,8 +679,7 @@ impl App {
         }
         let book = book_from_number(snap.book_number)
             .map_err(|_| anyhow::anyhow!("invalid book number"))?;
-        let chap_u8 = u8::try_from(snap.chapter)
-            .map_err(|_| anyhow::anyhow!("invalid chapter"))?;
+        let chap_u8 = u8::try_from(snap.chapter).map_err(|_| anyhow::anyhow!("invalid chapter"))?;
         let cr = BibleChapterReference::new(book, chap_u8)
             .map_err(|_| anyhow::anyhow!("invalid chapter reference"))?;
         self.current = Some(cr);
@@ -725,10 +732,7 @@ impl App {
             AppEvent::SearchDone { query, hits } => {
                 // A second search may have started before this one came back.
                 // Only apply if the result still matches the active query.
-                let still_active = self
-                    .searching
-                    .as_ref()
-                    .is_some_and(|s| s.query == query);
+                let still_active = self.searching.as_ref().is_some_and(|s| s.query == query);
                 if !still_active {
                     return Ok(());
                 }
@@ -921,7 +925,11 @@ impl App {
     /// Where Esc lands: the reader, or the welcome screen before anything
     /// is installed.
     fn home_mode(&self) -> Mode {
-        if self.bible.is_some() { Mode::Normal } else { Mode::NoTranslation }
+        if self.bible.is_some() {
+            Mode::Normal
+        } else {
+            Mode::NoTranslation
+        }
     }
 
     fn clear_search(&mut self) {
@@ -944,7 +952,10 @@ impl App {
                 self.jump_history_idx = None;
                 push_history(&mut self.jump_history, &q);
                 let trimmed = q.trim();
-                if matches!(trimmed, "q" | "q!" | "qa" | "qa!" | "quit" | "wq" | "x" | "exit") {
+                if matches!(
+                    trimmed,
+                    "q" | "q!" | "qa" | "qa!" | "quit" | "wq" | "x" | "exit"
+                ) {
                     self.mode = Mode::Quit;
                 } else if trimmed == "b" {
                     self.bookmark_current_chapter();
@@ -1051,8 +1062,7 @@ impl App {
             KeyCode::PageDown => {
                 let n = self.filtered_indices().len();
                 if n > 0 {
-                    self.manager_cursor =
-                        (self.manager_cursor + 10).min(n - 1);
+                    self.manager_cursor = (self.manager_cursor + 10).min(n - 1);
                 }
             }
             KeyCode::PageUp => {
@@ -1116,11 +1126,7 @@ impl App {
                 self.set_status(format!("uninstall failed: {e}"));
             } else {
                 self.installed = storage::list_installed().unwrap_or_default();
-                if self
-                    .bible
-                    .as_ref()
-                    .is_some_and(|b| b.translation.id == id)
-                {
+                if self.bible.as_ref().is_some_and(|b| b.translation.id == id) {
                     self.bible = None;
                     self.current = None;
                 }
@@ -1159,12 +1165,19 @@ impl App {
         match self.load_translation(id) {
             Ok(()) => {
                 if let Some((cr, verse)) = place
-                    && self.bible.as_ref().is_some_and(|b| b.get_chapter(&cr).is_some())
+                    && self
+                        .bible
+                        .as_ref()
+                        .is_some_and(|b| b.get_chapter(&cr).is_some())
                 {
                     self.current = Some(cr);
                     self.focus_verse = verse;
                 }
-                let name = self.bible.as_ref().map(|b| b.translation.display_name.clone()).unwrap_or_default();
+                let name = self
+                    .bible
+                    .as_ref()
+                    .map(|b| b.translation.display_name.clone())
+                    .unwrap_or_default();
                 self.set_status(format!("reading {name}"));
                 self.save_state();
             }
@@ -1187,12 +1200,16 @@ impl App {
             KeyCode::Down => self.palette_cursor += 1,
             KeyCode::Char('n') if ctrl => self.palette_cursor += 1,
             KeyCode::Up => self.palette_cursor = self.palette_cursor.saturating_sub(1),
-            KeyCode::Char('p') if ctrl => self.palette_cursor = self.palette_cursor.saturating_sub(1),
+            KeyCode::Char('p') if ctrl => {
+                self.palette_cursor = self.palette_cursor.saturating_sub(1)
+            }
             KeyCode::PageDown => self.palette_cursor += 8,
             KeyCode::PageUp => self.palette_cursor = self.palette_cursor.saturating_sub(8),
             KeyCode::Enter => {
                 let items = chrome::palette_items(self);
-                if let Some(item) = items.get(self.palette_cursor.min(items.len().saturating_sub(1))) {
+                if let Some(item) =
+                    items.get(self.palette_cursor.min(items.len().saturating_sub(1)))
+                {
                     let action = item.action.clone();
                     self.mode = self.home_mode();
                     self.run_palette_action(action);
@@ -1294,7 +1311,9 @@ impl App {
         };
         match self.mode {
             Mode::Normal => self.shift_focus(dir),
-            Mode::Manager => self.manager_cursor = step(self.manager_cursor, self.filtered_indices().len()),
+            Mode::Manager => {
+                self.manager_cursor = step(self.manager_cursor, self.filtered_indices().len())
+            }
             Mode::Bookmarks => {
                 self.bookmarks_cursor = step(self.bookmarks_cursor, self.bookmarks.len());
                 self.bookmarks_note_scroll = 0;
@@ -1310,7 +1329,8 @@ impl App {
                 self.palette_cursor = step(self.palette_cursor, n);
             }
             Mode::Settings => {
-                self.settings_cursor = step(self.settings_cursor, crate::tui::draw::SETTINGS_ITEMS.len());
+                self.settings_cursor =
+                    step(self.settings_cursor, crate::tui::draw::SETTINGS_ITEMS.len());
             }
             _ => {}
         }
@@ -1339,17 +1359,13 @@ impl App {
         let opens_editor: bool = match (verse.is_some(), second, extra) {
             (false, None, _) if first == "note" => true,
             (false, _, _) if first != "note" => {
-                self.set_status(
-                    "syntax: :b | :b N | :b note | :b N note",
-                );
+                self.set_status("syntax: :b | :b N | :b note | :b N note");
                 return;
             }
             (true, None, _) => false,
             (true, Some("note"), None) => true,
             _ => {
-                self.set_status(
-                    "syntax: :b | :b N | :b note | :b N note",
-                );
+                self.set_status("syntax: :b | :b N | :b note | :b N note");
                 return;
             }
         };
@@ -1374,7 +1390,12 @@ impl App {
         };
         let book = cr.book();
         let label = match verse {
-            Some(v) => format!("{} {}:{}", crate::reference::book_display(&book), chapter, v),
+            Some(v) => format!(
+                "{} {}:{}",
+                crate::reference::book_display(&book),
+                chapter,
+                v
+            ),
             None => format!("{} {}", crate::reference::book_display(&book), chapter),
         };
         let bm = crate::bookmarks::Bookmark {
@@ -1407,7 +1428,12 @@ impl App {
         };
         let book = cr.book();
         let ref_label = match verse {
-            Some(v) => format!("{} {}:{}", crate::reference::book_display(&book), chapter, v),
+            Some(v) => format!(
+                "{} {}:{}",
+                crate::reference::book_display(&book),
+                chapter,
+                v
+            ),
             None => format!("{} {}", crate::reference::book_display(&book), chapter),
         };
         let label = format!("{} ({})", ref_label, bible.translation.display_name);
@@ -1740,11 +1766,7 @@ impl App {
             self.save_plan_progress();
         }
         self.save_state();
-        self.set_status(format!(
-            "📖 day {}: {}",
-            daily.day,
-            daily.short()
-        ));
+        self.set_status(format!("📖 day {}: {}", daily.day, daily.short()));
     }
 
     fn toggle_plan_complete(&mut self, day_idx: usize) {
@@ -2008,11 +2030,7 @@ impl App {
             .as_ref()
             .map(|b| b.translation.id.as_str())
             .unwrap_or("");
-        let other_count = self
-            .installed
-            .iter()
-            .filter(|t| t.id != primary_id)
-            .count();
+        let other_count = self.installed.iter().filter(|t| t.id != primary_id).count();
         if other_count == 0 {
             self.set_status("install another translation first (T)");
             return;
@@ -2027,11 +2045,7 @@ impl App {
             .as_ref()
             .map(|b| b.translation.id.clone())
             .unwrap_or_default();
-        let count = self
-            .installed
-            .iter()
-            .filter(|t| t.id != primary_id)
-            .count();
+        let count = self.installed.iter().filter(|t| t.id != primary_id).count();
         match k.code {
             KeyCode::Esc | KeyCode::Char('q') => self.mode = Mode::Normal,
             KeyCode::Down | KeyCode::Char('j') => {
@@ -2097,20 +2111,18 @@ impl App {
             // never gets a chance to write the panic message to stderr —
             // which would otherwise scroll the alternate-screen TUI and
             // push the header out of view.
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
-                move || {
-                    let mut progress = move |bytes: u64, total: Option<u64>| {
-                        let _ = tx_progress.send(AppEvent::DownloadProgress {
-                            id: id_for_progress.clone(),
-                            bytes,
-                            total,
-                        });
-                    };
-                    crate::download::install(&id_for_install, Some(&mut progress))
-                        .map(|b| b.translation)
-                        .map_err(|e| e.to_string())
-                },
-            ));
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+                let mut progress = move |bytes: u64, total: Option<u64>| {
+                    let _ = tx_progress.send(AppEvent::DownloadProgress {
+                        id: id_for_progress.clone(),
+                        bytes,
+                        total,
+                    });
+                };
+                crate::download::install(&id_for_install, Some(&mut progress))
+                    .map(|b| b.translation)
+                    .map_err(|e| e.to_string())
+            }));
             let result = match result {
                 Ok(r) => r,
                 Err(panic) => {

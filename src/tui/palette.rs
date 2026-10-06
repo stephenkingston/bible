@@ -94,7 +94,11 @@ pub(crate) fn items(query: &str, ctx: &Context) -> Vec<Item> {
 
     let mut out = Vec::new();
     if let Some(label) = reference_label(q) {
-        out.push(Item { label: format!("Go to {label}"), hint: "enter".into(), action: Action::Jump(q.to_string()) });
+        out.push(Item {
+            label: format!("Go to {label}"),
+            hint: "enter".into(),
+            action: Action::Jump(q.to_string()),
+        });
     }
     // Commands whose name starts with what was typed beat the search
     // fallback; looser matches come after it.
@@ -114,8 +118,18 @@ fn catalogue(ctx: &Context) -> Vec<Item> {
     let mut all: Vec<Item> = COMMANDS
         .iter()
         .filter(|(cmd, _, _)| *cmd != Cmd::InstallKjv || ctx.installed.is_empty())
-        .filter(|(cmd, _, _)| has_bible || matches!(cmd, Cmd::InstallKjv | Cmd::Translations | Cmd::Settings | Cmd::Keys | Cmd::Quit))
-        .map(|(cmd, label, hint)| Item { label: label.to_string(), hint: hint.to_string(), action: Action::Run(*cmd) })
+        .filter(|(cmd, _, _)| {
+            has_bible
+                || matches!(
+                    cmd,
+                    Cmd::InstallKjv | Cmd::Translations | Cmd::Settings | Cmd::Keys | Cmd::Quit
+                )
+        })
+        .map(|(cmd, label, hint)| Item {
+            label: label.to_string(),
+            hint: hint.to_string(),
+            action: Action::Run(*cmd),
+        })
         .collect();
     for t in ctx.installed {
         if Some(t.id.as_str()) != ctx.current_translation {
@@ -129,7 +143,11 @@ fn catalogue(ctx: &Context) -> Vec<Item> {
     for p in ThemePreset::ALL {
         all.push(Item {
             label: format!("Theme: {}", p.label()),
-            hint: if p == ctx.theme { "current".into() } else { String::new() },
+            hint: if p == ctx.theme {
+                "current".into()
+            } else {
+                String::new()
+            },
             action: Action::Theme(p),
         });
     }
@@ -140,7 +158,11 @@ fn catalogue(ctx: &Context) -> Vec<Item> {
     ] {
         all.push(Item {
             label: format!("Layout: {name}"),
-            hint: if l == ctx.layout { "current".into() } else { String::new() },
+            hint: if l == ctx.layout {
+                "current".into()
+            } else {
+                String::new()
+            },
             action: Action::Layout(l),
         });
     }
@@ -151,7 +173,11 @@ fn catalogue(ctx: &Context) -> Vec<Item> {
     ] {
         all.push(Item {
             label: format!("Columns: {name}"),
-            hint: if c == ctx.columns { "current".into() } else { String::new() },
+            hint: if c == ctx.columns {
+                "current".into()
+            } else {
+                String::new()
+            },
             action: Action::Columns(c),
         });
     }
@@ -164,7 +190,10 @@ fn score(label: &str, q: &str) -> Option<u8> {
     if label.starts_with(q) {
         return Some(0);
     }
-    if label.split(|c: char| !c.is_alphanumeric()).any(|w| !w.is_empty() && w.starts_with(q)) {
+    if label
+        .split(|c: char| !c.is_alphanumeric())
+        .any(|w| !w.is_empty() && w.starts_with(q))
+    {
         return Some(1);
     }
     if label.contains(q) {
@@ -219,7 +248,10 @@ mod tests {
     #[test]
     fn typing_a_command_name_finds_it_before_search() {
         assert_eq!(items("qu", &ctx())[0].action, Action::Run(Cmd::Quit));
-        assert_eq!(items("dark", &ctx())[0].action, Action::Theme(ThemePreset::SolarizedDark));
+        assert_eq!(
+            items("dark", &ctx())[0].action,
+            Action::Theme(ThemePreset::SolarizedDark)
+        );
     }
 
     #[test]

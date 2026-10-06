@@ -173,8 +173,7 @@ pub fn generate_bible_in_a_year(year: i32) -> ReadingPlan {
         let n = base + if (d as usize) <= extra { 1 } else { 0 };
         let slice = &all[idx..idx + n];
         idx += n;
-        let date = NaiveDate::from_yo_opt(year, d as u32)
-            .expect("valid day-of-year");
+        let date = NaiveDate::from_yo_opt(year, d as u32).expect("valid day-of-year");
         days.push(DailyReading {
             day: d,
             date,
@@ -250,9 +249,7 @@ pub fn save_progress(file: &PlanFile) -> Result<()> {
 /// (missing file, schema mismatch, year/plan-id mismatch) yields empty.
 pub fn load_completed_for(year: i32, plan_id: &str) -> HashSet<u16> {
     match load_progress() {
-        Some(f) if f.year == year && f.plan_id == plan_id => {
-            f.completed_days.into_iter().collect()
-        }
+        Some(f) if f.year == year && f.plan_id == plan_id => f.completed_days.into_iter().collect(),
         _ => HashSet::new(),
     }
 }

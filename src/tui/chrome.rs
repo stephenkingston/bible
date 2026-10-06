@@ -16,7 +16,11 @@ use super::theme::{Edge, Header, Theme};
 use super::{App, Mode, SPINNER_FRAMES, palette};
 
 pub(super) fn header_height(theme: &Theme) -> u16 {
-    if theme.header == Header::RunningHead { 2 } else { 1 }
+    if theme.header == Header::RunningHead {
+        2
+    } else {
+        1
+    }
 }
 
 /// Short label for a translation: "KJV", "NIV", "Darby".
@@ -27,7 +31,8 @@ pub(super) fn short_name(t: &TranslationInfo) -> String {
         .map(str::trim_start)
         .unwrap_or(&t.display_name);
     if let Some(word) = rest.split_whitespace().next() {
-        let caps = word.chars().any(|c| c.is_uppercase()) && !word.chars().any(|c| c.is_lowercase());
+        let caps =
+            word.chars().any(|c| c.is_uppercase()) && !word.chars().any(|c| c.is_lowercase());
         if caps && word.chars().count() <= 6 {
             return word.to_string();
         }
@@ -63,14 +68,19 @@ fn left_right(f: &mut Frame, area: Rect, left: Vec<Span<'static>>, right: Vec<Sp
     let rw = width_of(&right).min(area.width);
     let lw = area.width.saturating_sub(rw);
     f.render_widget(Line::from(left), Rect::new(area.x, area.y, lw, 1));
-    f.render_widget(Line::from(right), Rect::new(area.x + area.width - rw, area.y, rw, 1));
+    f.render_widget(
+        Line::from(right),
+        Rect::new(area.x + area.width - rw, area.y, rw, 1),
+    );
 }
 
 pub(super) fn draw_header(f: &mut Frame, app: &App, area: Rect, pane: Rect, theme: &Theme) {
     let translation = app.bible.as_ref().map(|b| &b.translation);
     let pos = position(app);
     let today_spans = |label_dim: bool| -> Vec<Span<'static>> {
-        let Some((short, done)) = today(app) else { return Vec::new() };
+        let Some((short, done)) = today(app) else {
+            return Vec::new();
+        };
         let mark = if done { "●" } else { "○" };
         let mark_color = if done { theme.ok } else { theme.accent };
         let label = Style::default().fg(if label_dim { theme.dim } else { theme.fg });
@@ -89,7 +99,13 @@ pub(super) fn draw_header(f: &mut Frame, app: &App, area: Rect, pane: Rect, them
     match theme.header {
         Header::Badge => {
             let mut left = vec![
-                Span::styled(" bible ", Style::default().bg(theme.badge_bg).fg(theme.badge_fg).bold()),
+                Span::styled(
+                    " bible ",
+                    Style::default()
+                        .bg(theme.badge_bg)
+                        .fg(theme.badge_fg)
+                        .bold(),
+                ),
                 Span::raw(" "),
                 Span::styled(
                     translation.map_or("—".to_string(), |t| t.display_name.clone()),
@@ -107,7 +123,9 @@ pub(super) fn draw_header(f: &mut Frame, app: &App, area: Rect, pane: Rect, them
                     Span::styled("Today: ", theme.dim()),
                     Span::styled(
                         short,
-                        Style::default().fg(if done { theme.ok } else { theme.title2 }).bold(),
+                        Style::default()
+                            .fg(if done { theme.ok } else { theme.title2 })
+                            .bold(),
                     ),
                     Span::raw(" "),
                 ],
@@ -120,7 +138,10 @@ pub(super) fn draw_header(f: &mut Frame, app: &App, area: Rect, pane: Rect, them
             if let Some((book, ch)) = pos {
                 left.push(Span::styled(book, Style::default().fg(theme.title).bold()));
                 left.push(Span::raw(" "));
-                left.push(Span::styled(ch.to_string(), Style::default().fg(theme.title2).bold()));
+                left.push(Span::styled(
+                    ch.to_string(),
+                    Style::default().fg(theme.title2).bold(),
+                ));
                 left.push(Span::raw("   "));
             }
             if let Some(t) = translation {
@@ -132,7 +153,9 @@ pub(super) fn draw_header(f: &mut Frame, app: &App, area: Rect, pane: Rect, them
             let left = vec![
                 Span::raw("  "),
                 Span::styled(
-                    translation.map_or(String::new(), |t| truncate(&t.display_name.to_uppercase(), 30)),
+                    translation.map_or(String::new(), |t| {
+                        truncate(&t.display_name.to_uppercase(), 30)
+                    }),
                     theme.dim(),
                 ),
             ];
@@ -152,21 +175,30 @@ pub(super) fn draw_header(f: &mut Frame, app: &App, area: Rect, pane: Rect, them
                 let rule_y = area.y + 1;
                 let rule = Rect::new(pane.x + 2, rule_y, pane.width.saturating_sub(4), 1);
                 f.render_widget(
-                    Span::styled("─".repeat(rule.width as usize), Style::default().fg(theme.faint)),
+                    Span::styled(
+                        "─".repeat(rule.width as usize),
+                        Style::default().fg(theme.faint),
+                    ),
                     rule,
                 );
                 if let Some(orn) = theme.ornament {
                     let s = format!(" {orn} ");
                     let w = s.width() as u16;
                     let x = rule.x + rule.width.saturating_sub(w) / 2;
-                    f.render_widget(Span::styled(s, Style::default().fg(theme.accent)), Rect::new(x, rule_y, w, 1));
+                    f.render_widget(
+                        Span::styled(s, Style::default().fg(theme.accent)),
+                        Rect::new(x, rule_y, w, 1),
+                    );
                 }
             }
         }
         Header::Chips => {
             let mut left = vec![
                 Span::raw(" "),
-                Span::styled(theme.ornament.unwrap_or("•"), Style::default().fg(theme.accent).bold()),
+                Span::styled(
+                    theme.ornament.unwrap_or("•"),
+                    Style::default().fg(theme.accent).bold(),
+                ),
                 Span::raw(" "),
             ];
             let current = translation.map(|t| t.id.as_str());
@@ -179,7 +211,10 @@ pub(super) fn draw_header(f: &mut Frame, app: &App, area: Rect, pane: Rect, them
                 }
                 used += w;
                 let style = if Some(t.id.as_str()) == current {
-                    Style::default().fg(theme.badge_fg).bg(theme.badge_bg).bold()
+                    Style::default()
+                        .fg(theme.badge_fg)
+                        .bg(theme.badge_bg)
+                        .bold()
                 } else {
                     theme.dim()
                 };
@@ -207,7 +242,10 @@ fn mode_label(mode: Mode) -> &'static str {
 /// The status line: what you're doing and where you are on the left; the
 /// way out (`? keys`, `q quit`) always pinned on the right.
 pub(super) fn draw_footer(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
-    f.render_widget(Block::default().style(Style::default().bg(theme.bar_bg)), area);
+    f.render_widget(
+        Block::default().style(Style::default().bg(theme.bar_bg)),
+        area,
+    );
     let bar = |s: Style| s.bg(theme.bar_bg);
 
     if let Some(s) = app.searching.as_ref() {
@@ -215,7 +253,10 @@ pub(super) fn draw_footer(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
         let elapsed = s.started_at.elapsed().as_millis();
         let line = Line::from(vec![
             Span::raw(" "),
-            Span::styled(frame.to_string(), bar(Style::default().fg(theme.accent).bold())),
+            Span::styled(
+                frame.to_string(),
+                bar(Style::default().fg(theme.accent).bold()),
+            ),
             Span::styled(" searching for ", bar(Style::default().fg(theme.fg))),
             Span::styled(
                 format!("`{}`", sanitize_one_line(&s.query)),
@@ -232,7 +273,11 @@ pub(super) fn draw_footer(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
 
     let mut left: Vec<Span<'static>> = Vec::new();
     if theme.pill {
-        let pill_bg = if app.mode == Mode::Help { theme.accent2 } else { theme.badge_bg };
+        let pill_bg = if app.mode == Mode::Help {
+            theme.accent2
+        } else {
+            theme.badge_bg
+        };
         left.push(Span::styled(
             format!(" {} ", mode_label(app.mode)),
             Style::default().fg(theme.badge_fg).bg(pill_bg).bold(),
@@ -243,11 +288,25 @@ pub(super) fn draw_footer(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
     // Pinned hints always show; optional ones only when there's room.
     type Hints<'a> = Vec<(&'a str, &'a str)>;
     let (pinned, optional): (Hints, Hints) = match app.mode {
-        Mode::Jump => (vec![("Enter", "go"), ("Esc", "cancel")], vec![("↑↓", "history")]),
-        Mode::Search => (vec![("Enter", "search"), ("Esc", "cancel")], vec![("↑↓", "history")]),
-        Mode::Palette => (vec![("Enter", "run"), ("Esc", "close")], vec![("↑↓", "choose")]),
+        Mode::Jump => (
+            vec![("Enter", "go"), ("Esc", "cancel")],
+            vec![("↑↓", "history")],
+        ),
+        Mode::Search => (
+            vec![("Enter", "search"), ("Esc", "cancel")],
+            vec![("↑↓", "history")],
+        ),
+        Mode::Palette => (
+            vec![("Enter", "run"), ("Esc", "close")],
+            vec![("↑↓", "choose")],
+        ),
         Mode::NoTranslation => (
-            vec![("i", "install KJV"), ("T", "browse"), ("?", "keys"), ("q", "quit")],
+            vec![
+                ("i", "install KJV"),
+                ("T", "browse"),
+                ("?", "keys"),
+                ("q", "quit"),
+            ],
             vec![("^K", "palette")],
         ),
         _ if app.parallel => (
@@ -263,12 +322,21 @@ pub(super) fn draw_footer(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
     match app.mode {
         Mode::Jump | Mode::Search => {
             let prompt = if app.mode == Mode::Jump { ":" } else { "/" };
-            left.push(Span::styled(prompt, bar(Style::default().fg(theme.accent).bold())));
-            left.push(Span::styled(sanitize_one_line(app.input.value()), bar(Style::default().fg(theme.fg))));
+            left.push(Span::styled(
+                prompt,
+                bar(Style::default().fg(theme.accent).bold()),
+            ));
+            left.push(Span::styled(
+                sanitize_one_line(app.input.value()),
+                bar(Style::default().fg(theme.fg)),
+            ));
             left.push(Span::styled("│", bar(Style::default().fg(theme.accent))));
         }
         _ if !app.status.is_empty() => {
-            left.push(Span::styled(sanitize_one_line(&app.status), bar(Style::default().fg(theme.fg))));
+            left.push(Span::styled(
+                sanitize_one_line(&app.status),
+                bar(Style::default().fg(theme.fg)),
+            ));
         }
         _ => {
             if let (Some((book, ch)), Some(b)) = (position(app), app.bible.as_ref()) {
@@ -294,12 +362,20 @@ pub(super) fn draw_footer(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
     };
     let all: Vec<(&str, &str)> = optional.iter().chain(pinned.iter()).copied().collect();
     let full = right_for(&all);
-    let right = if width_of(&left) + width_of(&full) + 2 <= area.width { full } else { right_for(&pinned) };
+    let right = if width_of(&left) + width_of(&full) + 2 <= area.width {
+        full
+    } else {
+        right_for(&pinned)
+    };
     left_right(f, area, left, right);
 }
 
 /// Key/label pairs as spans: keys in the theme's key style, labels dim.
-pub(super) fn hints(theme: &Theme, pairs: &[(&str, &str)], bg: Option<Color>) -> Vec<Span<'static>> {
+pub(super) fn hints(
+    theme: &Theme,
+    pairs: &[(&str, &str)],
+    bg: Option<Color>,
+) -> Vec<Span<'static>> {
     let with_bg = |s: Style| match bg {
         Some(c) => s.bg(c),
         None => s,
@@ -310,7 +386,11 @@ pub(super) fn hints(theme: &Theme, pairs: &[(&str, &str)], bg: Option<Color>) ->
             spans.push(Span::styled("   ", with_bg(Style::default())));
         }
         let k = theme.key_span(key);
-        let k_style = if theme.keycaps { k.style } else { with_bg(k.style) };
+        let k_style = if theme.keycaps {
+            k.style
+        } else {
+            with_bg(k.style)
+        };
         spans.push(Span::styled(k.content.into_owned(), k_style));
         spans.push(Span::styled(" ", with_bg(Style::default())));
         spans.push(Span::styled(label.to_string(), with_bg(theme.dim())));
@@ -366,7 +446,12 @@ pub(super) fn card(f: &mut Frame, rect: Rect, title: Option<Line<'static>>, them
     if let Some(shadow) = theme.shadow {
         let sx = (rect.x + 1).min(screen.right());
         let sy = (rect.y + 1).min(screen.bottom());
-        let s = Rect::new(sx, sy, rect.width.min(screen.right() - sx), rect.height.min(screen.bottom() - sy));
+        let s = Rect::new(
+            sx,
+            sy,
+            rect.width.min(screen.right() - sx),
+            rect.height.min(screen.bottom() - sy),
+        );
         for y in s.top()..s.bottom() {
             for x in s.left()..s.right() {
                 if let Some(c) = f.buffer_mut().cell_mut((x, y)) {
@@ -376,7 +461,11 @@ pub(super) fn card(f: &mut Frame, rect: Rect, title: Option<Line<'static>>, them
         }
     }
     f.render_widget(Clear, rect);
-    let edge = if theme.overlay == Edge::None { Edge::Plain } else { theme.overlay };
+    let edge = if theme.overlay == Edge::None {
+        Edge::Plain
+    } else {
+        theme.overlay
+    };
     let mut block = theme.block(edge, theme.border).style(theme.panel());
     if let Some(t) = title {
         block = block.title(t.centered());
@@ -389,7 +478,12 @@ pub(super) fn card(f: &mut Frame, rect: Rect, title: Option<Line<'static>>, them
 pub(super) fn centered(area: Rect, w: u16, h: u16) -> Rect {
     let w = w.min(area.width);
     let h = h.min(area.height);
-    Rect::new(area.x + (area.width - w) / 2, area.y + (area.height - h) / 2, w, h)
+    Rect::new(
+        area.x + (area.width - w) / 2,
+        area.y + (area.height - h) / 2,
+        w,
+        h,
+    )
 }
 
 fn card_title(theme: &Theme, text: &str) -> Line<'static> {
@@ -476,11 +570,18 @@ pub(super) fn draw_keys(f: &mut Frame, area: Rect, theme: &Theme) {
         .unwrap_or(1) as usize;
 
     // Balance groups across columns, keeping their order.
-    let heights: Vec<u16> = KEY_GROUPS.iter().map(|(_, items)| items.len() as u16 + 1).collect();
+    let heights: Vec<u16> = KEY_GROUPS
+        .iter()
+        .map(|(_, items)| items.len() as u16 + 1)
+        .collect();
     let mut columns: Vec<Vec<usize>> = vec![Vec::new(); ncols];
     let mut col_h = vec![0u16; ncols];
     for (gi, h) in heights.iter().enumerate() {
-        let target = if gi < ncols { gi } else { (0..ncols).min_by_key(|&c| col_h[c]).unwrap_or(0) };
+        let target = if gi < ncols {
+            gi
+        } else {
+            (0..ncols).min_by_key(|&c| col_h[c]).unwrap_or(0)
+        };
         if !columns[target].is_empty() {
             col_h[target] += 1;
         }
@@ -505,11 +606,21 @@ pub(super) fn draw_keys(f: &mut Frame, area: Rect, theme: &Theme) {
             Span::styled(" esc close ", theme.dim()),
         ]);
         f.render_widget(rule, Rect::new(rect.x, rect.y, rect.width, 1));
-        Rect::new(rect.x + 4, rect.y + 2, rect.width.saturating_sub(8), rect.height.saturating_sub(2))
+        Rect::new(
+            rect.x + 4,
+            rect.y + 2,
+            rect.width.saturating_sub(8),
+            rect.height.saturating_sub(2),
+        )
     } else {
         let rect = centered(area, content_w + 8, content_h + 6);
         let inner = card(f, rect, Some(card_title(theme, "Keys")), theme);
-        Rect::new(inner.x + 3, inner.y + 1, inner.width.saturating_sub(6), inner.height.saturating_sub(1))
+        Rect::new(
+            inner.x + 3,
+            inner.y + 1,
+            inner.width.saturating_sub(6),
+            inner.height.saturating_sub(1),
+        )
     };
 
     for (ci, groups) in columns.iter().enumerate() {
@@ -520,19 +631,39 @@ pub(super) fn draw_keys(f: &mut Frame, area: Rect, theme: &Theme) {
                 y += 1;
             }
             let (title, items) = KEY_GROUPS[gi];
-            let heading = if theme.spaced { theme.heading(title) } else { title.to_string() };
-            put(f, x, y, inner, Span::styled(heading, Style::default().fg(theme.title2).bold()));
+            let heading = if theme.spaced {
+                theme.heading(title)
+            } else {
+                title.to_string()
+            };
+            put(
+                f,
+                x,
+                y,
+                inner,
+                Span::styled(heading, Style::default().fg(theme.title2).bold()),
+            );
             y += 1;
             for (k, l) in items.iter() {
                 put(f, x, y, inner, card_key(k));
-                put(f, x + key_w, y, inner, Span::styled(l.to_string(), Style::default().fg(theme.fg)));
+                put(
+                    f,
+                    x + key_w,
+                    y,
+                    inner,
+                    Span::styled(l.to_string(), Style::default().fg(theme.fg)),
+                );
                 y += 1;
             }
         }
     }
 
     // The way out, on its own line under a rule.
-    let exit_y = if theme.keys_panel { inner.y + content_h + 1 } else { inner.bottom().saturating_sub(1) };
+    let exit_y = if theme.keys_panel {
+        inner.y + content_h + 1
+    } else {
+        inner.bottom().saturating_sub(1)
+    };
     if !theme.keys_panel && exit_y > inner.y {
         let rule_y = exit_y - 1;
         put(
@@ -540,7 +671,10 @@ pub(super) fn draw_keys(f: &mut Frame, area: Rect, theme: &Theme) {
             inner.x,
             rule_y,
             inner,
-            Span::styled("─".repeat(inner.width as usize), Style::default().fg(theme.faint)),
+            Span::styled(
+                "─".repeat(inner.width as usize),
+                Style::default().fg(theme.faint),
+            ),
         );
     }
     let mut exit: Vec<Span<'static>> = Vec::new();
@@ -550,13 +684,24 @@ pub(super) fn draw_keys(f: &mut Frame, area: Rect, theme: &Theme) {
         }
         exit.push(theme.key_span(k));
         exit.push(Span::raw(" "));
-        let style = if *k == "q" { Style::default().fg(theme.fg).bold() } else { Style::default().fg(theme.fg) };
+        let style = if *k == "q" {
+            Style::default().fg(theme.fg).bold()
+        } else {
+            Style::default().fg(theme.fg)
+        };
         exit.push(Span::styled(l.to_string(), style));
     }
     let w = width_of(&exit);
-    let x = if theme.keys_panel { inner.x } else { inner.x + inner.width.saturating_sub(w) / 2 };
+    let x = if theme.keys_panel {
+        inner.x
+    } else {
+        inner.x + inner.width.saturating_sub(w) / 2
+    };
     if exit_y < area.bottom() {
-        f.render_widget(Line::from(exit), Rect::new(x, exit_y, w.min(inner.width), 1));
+        f.render_widget(
+            Line::from(exit),
+            Rect::new(x, exit_y, w.min(inner.width), 1),
+        );
     }
 }
 
@@ -586,7 +731,12 @@ pub(super) fn draw_palette(f: &mut Frame, app: &App, area: Rect, theme: &Theme) 
     let shown = items.len().clamp(1, max_rows) as u16;
     let h = shown + 4;
     let y = area.y + (area.height.saturating_sub(h)) / 5 + 1;
-    let rect = Rect::new(area.x + (area.width - w) / 2, y.min(area.bottom().saturating_sub(h)), w, h);
+    let rect = Rect::new(
+        area.x + (area.width - w) / 2,
+        y.min(area.bottom().saturating_sub(h)),
+        w,
+        h,
+    );
     let inner = card(f, rect, None, theme);
     if inner.height < 3 || inner.width < 10 {
         return;
@@ -598,24 +748,38 @@ pub(super) fn draw_palette(f: &mut Frame, app: &App, area: Rect, theme: &Theme) 
     let input_area = Rect::new(inner.x + 1, inner.y, inner.width.saturating_sub(2), 1);
     if value.is_empty() {
         f.render_widget(
-            Line::from(vec![prompt, Span::styled("a reference, a search, or a command", theme.dim())]),
+            Line::from(vec![
+                prompt,
+                Span::styled("a reference, a search, or a command", theme.dim()),
+            ]),
             input_area,
         );
         f.set_cursor_position((input_area.x + 2, input_area.y));
     } else {
         f.render_widget(
-            Line::from(vec![prompt, Span::styled(value.to_string(), Style::default().fg(theme.fg))]),
+            Line::from(vec![
+                prompt,
+                Span::styled(value.to_string(), Style::default().fg(theme.fg)),
+            ]),
             input_area,
         );
         let cur = input_area.x + 2 + app.palette_input.visual_cursor() as u16;
         f.set_cursor_position((cur.min(input_area.right().saturating_sub(1)), input_area.y));
     }
     f.render_widget(
-        Span::styled("─".repeat(inner.width as usize), Style::default().fg(theme.faint)),
+        Span::styled(
+            "─".repeat(inner.width as usize),
+            Style::default().fg(theme.faint),
+        ),
         Rect::new(inner.x, inner.y + 1, inner.width, 1),
     );
 
-    let list = Rect::new(inner.x, inner.y + 2, inner.width, inner.height.saturating_sub(2));
+    let list = Rect::new(
+        inner.x,
+        inner.y + 2,
+        inner.width,
+        inner.height.saturating_sub(2),
+    );
     if items.is_empty() {
         f.render_widget(Span::styled("  nothing matches", theme.dim()), list);
         return;
@@ -628,12 +792,22 @@ pub(super) fn draw_palette(f: &mut Frame, app: &App, area: Rect, theme: &Theme) 
         let row = Rect::new(list.x, ry, list.width, 1);
         let sel = i == cursor;
         if sel {
-            f.render_widget(Block::default().style(Style::default().bg(theme.sel_bg)), row);
-            f.render_widget(Span::styled("▌", Style::default().fg(theme.accent)), Rect::new(row.x, ry, 1, 1));
+            f.render_widget(
+                Block::default().style(Style::default().bg(theme.sel_bg)),
+                row,
+            );
+            f.render_widget(
+                Span::styled("▌", Style::default().fg(theme.accent)),
+                Rect::new(row.x, ry, 1, 1),
+            );
         }
         let hint_w = it.hint.width() as u16;
         let label_w = row.width.saturating_sub(hint_w + 6);
-        let label_style = if sel { Style::default().fg(theme.fg).bold() } else { Style::default().fg(theme.fg) };
+        let label_style = if sel {
+            Style::default().fg(theme.fg).bold()
+        } else {
+            Style::default().fg(theme.fg)
+        };
         f.render_widget(
             Span::styled(truncate(&it.label, label_w as usize), label_style),
             Rect::new(row.x + 2, ry, label_w, 1),
@@ -658,14 +832,25 @@ pub(super) fn draw_welcome(f: &mut Frame, area: Rect, theme: &Theme) {
         let mut spans = vec![Span::raw("    "), theme.key_span(k)];
         let pad = 6usize.saturating_sub(theme.key_width(k));
         spans.push(Span::raw(" ".repeat(pad)));
-        spans.push(Span::styled(label.to_string(), Style::default().fg(theme.fg)));
+        spans.push(Span::styled(
+            label.to_string(),
+            Style::default().fg(theme.fg),
+        ));
         Line::from(spans)
     };
-    let title = if theme.spaced { theme.heading("bible") } else { "bible".to_string() };
+    let title = if theme.spaced {
+        theme.heading("bible")
+    } else {
+        "bible".to_string()
+    };
     let lines = vec![
         Line::from(Span::styled(title, Style::default().fg(theme.title).bold())).centered(),
         Line::from(""),
-        Line::from(Span::styled("No translations are installed yet.", theme.dim())).centered(),
+        Line::from(Span::styled(
+            "No translations are installed yet.",
+            theme.dim(),
+        ))
+        .centered(),
         Line::from(""),
         key("i", "install the King James Version"),
         key("T", "browse 1,000+ translations"),
@@ -675,7 +860,10 @@ pub(super) fn draw_welcome(f: &mut Frame, area: Rect, theme: &Theme) {
         Line::from(""),
         Line::from(vec![
             Span::styled("or from a shell:  ", theme.dim()),
-            Span::styled("bible install kjv", Style::default().fg(theme.accent2).bold()),
+            Span::styled(
+                "bible install kjv",
+                Style::default().fg(theme.accent2).bold(),
+            ),
         ])
         .centered(),
     ];

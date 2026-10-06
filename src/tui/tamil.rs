@@ -9,6 +9,7 @@
 //! elsewhere), measured with text shaping.
 
 /// Rows of `TENTHS`, by base letter: independent vowels, aytham, consonants.
+#[rustfmt::skip]
 const BASES: [char; 36] = [
     'அ', 'ஆ', 'இ', 'ஈ', 'உ', 'ஊ', 'எ', 'ஏ', 'ஐ', 'ஒ', 'ஓ', 'ஔ', 'ஃ', 'க', 'ங', 'ச', 'ஜ', 'ஞ',
     'ட', 'ண', 'த', 'ந', 'ன', 'ப', 'ம', 'ய', 'ர', 'ற', 'ல', 'ள', 'ழ', 'வ', 'ஶ', 'ஷ', 'ஸ', 'ஹ',
@@ -19,6 +20,7 @@ const SIGNS: [char; 12] = ['ா', 'ி', 'ீ', 'ு', 'ூ', 'ெ', 'ே', 'ை
 
 /// Glyph width in tenths of a cell; 0 where the combination doesn't occur.
 #[cfg(target_os = "macos")]
+#[rustfmt::skip]
 const TENTHS: [[u8; 13]; 36] = [
     [15,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0], // அ
     [18,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0], // ஆ
@@ -58,6 +60,7 @@ const TENTHS: [[u8; 13]; 36] = [
     [20, 28, 22, 20, 26, 28, 32, 30, 35, 40, 38, 46, 20], // ஹ
 ];
 #[cfg(not(target_os = "macos"))]
+#[rustfmt::skip]
 const TENTHS: [[u8; 13]; 36] = [
     [19,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0], // அ
     [22,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0], // ஆ

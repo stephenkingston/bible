@@ -14,7 +14,8 @@ use crate::error::{Error, Result};
 use crate::storage::config_dir;
 
 const STATIC_MANIFEST: &str = include_str!("../assets/manifest.json");
-const TREES_URL: &str = "https://api.github.com/repos/Beblia/Holy-Bible-XML-Format/git/trees/master?recursive=1";
+const TREES_URL: &str =
+    "https://api.github.com/repos/Beblia/Holy-Bible-XML-Format/git/trees/master?recursive=1";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AvailableTranslation {
@@ -176,10 +177,7 @@ pub fn resolve_id(input: &str) -> Result<String> {
         return Ok(t.id.clone());
     }
     let available = list_available_or_fetch();
-    if let Some(t) = available
-        .iter()
-        .find(|t| t.id.eq_ignore_ascii_case(input))
-    {
+    if let Some(t) = available.iter().find(|t| t.id.eq_ignore_ascii_case(input)) {
         return Ok(t.id.clone());
     }
     if let Some(t) = available

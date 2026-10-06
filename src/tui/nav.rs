@@ -1,6 +1,6 @@
 use crate::reference::{
-    BibleChapterReference, BibleReference, BibleReferenceRepresentation,
-    get_bible_book_by_number, get_number_of_chapters,
+    BibleChapterReference, BibleReference, BibleReferenceRepresentation, get_bible_book_by_number,
+    get_number_of_chapters,
 };
 
 pub fn shift_chapter(r: &BibleChapterReference, dir: i32) -> Option<BibleChapterReference> {
